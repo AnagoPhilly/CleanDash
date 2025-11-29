@@ -8,11 +8,12 @@
     <link rel="stylesheet" href="style.css" />
 
     <style>
+        /* Portal-Specific Overrides */
         .app-container { flex-direction: column; }
         .sidebar { width: 100%; height: auto; flex-direction: row; justify-content: space-between; padding: 0.5rem 1rem; }
-        .nav { display: none; } /* Hide standard nav */
+        .nav { display: none; } /* Hide standard nav menus */
         .main-content { padding: 1rem; }
-        .logout-btn { background: #374151; border: 1px solid #4b5563; padding: 5px 15px; border-radius: 6px; cursor: pointer; font-size: 0.9rem; }
+        .logout-btn { background: #374151; border: 1px solid #4b5563; padding: 5px 15px; border-radius: 6px; cursor: pointer; font-size: 0.9rem; color: white; }
 
         /* Mobile Calendar Tweaks */
         .scheduler-grid { min-height: 500px; }
@@ -36,14 +37,20 @@
         <div class="page-container" style="max-width: 100%;">
 
             <div class="content-card">
-                <div class="card-header">
-                    <div>
-                        <h2 id="welcomeMsg">My Schedule</h2>
-                        <p id="weekRangeDisplay">Loading dates...</p>
+                <div class="card-header" style="flex-direction: column; align-items: flex-start; gap: 10px;">
+                    <div style="width:100%; display:flex; justify-content:space-between; align-items:center;">
+                        <div>
+                            <h2 id="welcomeMsg" style="font-size:1.3rem;">My Schedule</h2>
+                            <p id="weekRangeDisplay" style="margin:0; font-size:0.8rem; color:#6b7280;">Loading...</p>
+                        </div>
+                        <div style="background:#f0fdfa; color:#0f766e; padding:5px 10px; border-radius:8px; font-weight:700; font-size:0.9rem; border:1px solid #ccfbf1;">
+                            <span id="totalHoursDisplay">0.0</span> Hrs
+                        </div>
                     </div>
-                    <div style="display:flex; gap:10px;">
-                        <button class="btn btn-secondary" onclick="changeWeek(-1)">←</button>
-                        <button class="btn btn-secondary" onclick="changeWeek(1)">→</button>
+
+                    <div style="display:flex; gap:10px; width:100%;">
+                        <button class="btn btn-secondary" onclick="changeWeek(-1)" style="flex:1;">← Prev</button>
+                        <button class="btn btn-secondary" onclick="changeWeek(1)" style="flex:1;">Next →</button>
                     </div>
                 </div>
 

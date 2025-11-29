@@ -6,17 +6,15 @@ const diff = currentWeekStart.getDate() - day + (day === 0 ? -6 : 1);
 currentWeekStart.setDate(diff);
 currentWeekStart.setHours(0,0,0,0);
 
-const MAX_DISTANCE_KM = 0.5; // 500 meters
+const MAX_DISTANCE_KM = 0.5; // 500 meters allow radius
 
 auth.onAuthStateChanged(async user => {
     if (user) {
-        document.getElementById('appLoading').style.display = 'none';
-        document.getElementById('app').style.display = 'flex';
-
+        // 1. Verify Identity in Employee Database
         const empSnap = await db.collection('employees').where('email', '==', user.email).get();
 
         if (empSnap.empty) {
-            alert("Account not found in Employee Roster.");
+            alert("Account not found in Employee Roster. Please contact your manager.");
             auth.signOut();
             return;
         }
@@ -24,25 +22,40 @@ auth.onAuthStateChanged(async user => {
         const employee = empSnap.docs[0].data();
         employee.id = empSnap.docs[0].id;
 
-        document.getElementById('welcomeMsg').textContent = `Hi, ${employee.name.split(' ')[0]}`;
+        // Update UI
+        document.getElementById('appLoading').style.display = 'none';
+        document.getElementById('app').style.display = 'flex';
 
+        const welcomeEl = document.getElementById('welcomeMsg');
+        if(welcomeEl) welcomeEl.textContent = `Hi, ${employee.name.split(' ')[0]}`;
+
+        // 2. Load My Shifts
         loadMyShifts(employee.id);
     } else {
+        // If not logged in, go back to main index
         window.location.href = 'index.html';
     }
 });
 
 async function loadMyShifts(employeeId) {
     const container = document.getElementById('schedulerGrid');
-    const hoursDisplay = document.getElementById('totalHoursDisplay'); // NEW
+    const hoursDisplay = document.getElementById('totalHoursDisplay');
 
-    // ... (Date Header Logic) ...
+    // Date Header
+    const weekEnd = new Date(currentWeekStart);
+    weekEnd.setDate(weekEnd.getDate() + 6);
+
+    const dateEl = document.getElementById('weekRangeDisplay');
+    if(dateEl) dateEl.textContent = `${currentWeekStart.toLocaleDateString()} - ${weekEnd.toLocaleDateString()}`;
 
     try {
-        // ... (Query Logic) ...
+        // Fetch Jobs
+        const snap = await db.collection('jobs')
+            .where('employeeId', '==', employeeId)
+            .get();
 
         const jobs = [];
-        let totalHours = 0; // NEW: Init counter
+        let totalHours = 0;
 
         snap.forEach(doc => {
             const j = doc.data();
@@ -51,7 +64,7 @@ async function loadMyShifts(employeeId) {
             j.end = j.endTime.toDate();
             jobs.push(j);
 
-            // NEW: Calculate Hours if Completed
+            // Calculate Hours if Completed
             if (j.status === 'Completed' && j.actualStartTime && j.actualEndTime) {
                 const diffMs = j.actualEndTime.toDate() - j.actualStartTime.toDate();
                 const hrs = diffMs / (1000 * 60 * 60);
@@ -59,18 +72,19 @@ async function loadMyShifts(employeeId) {
             }
         });
 
-        // NEW: Update Display
         if(hoursDisplay) hoursDisplay.textContent = totalHours.toFixed(2);
 
         renderReadCalendar(jobs);
 
     } catch (e) {
-        // ... error handling ...
+        console.error(e);
+        container.innerHTML = '<p style="text-align:center; padding:1rem;">Error loading schedule.</p>';
     }
 }
 
 function renderReadCalendar(jobs) {
     const grid = document.getElementById('schedulerGrid');
+    if(!grid) return;
     grid.innerHTML = '';
 
     for (let i = 0; i < 7; i++) {
@@ -92,16 +106,14 @@ function renderReadCalendar(jobs) {
         dayJobs.forEach(job => {
             const timeStr = job.start.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
-            // --- NEW BUTTON LOGIC ---
+            // Determine Button State
             let actionBtn = '';
 
             if (job.status === 'Completed') {
-                // 1. Shift Done
                 const actualEnd = job.actualEndTime ? new Date(job.actualEndTime.toDate()).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'}) : 'Done';
                 actionBtn = `<div class="status-badge completed">🏁 Ended: ${actualEnd}</div>`;
 
             } else if (job.status === 'Started') {
-                // 2. Shift In Progress -> Show Clock Out
                 const actualStart = job.actualStartTime ? new Date(job.actualStartTime.toDate()).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'}) : '';
                 actionBtn = `
                     <div style="font-size:0.75rem; color:green; margin-bottom:4px;">Started: ${actualStart}</div>
@@ -109,7 +121,6 @@ function renderReadCalendar(jobs) {
                 `;
 
             } else {
-                // 3. Not Started -> Show Check In
                 actionBtn = `<button class="btn-checkin" onclick="attemptCheckIn('${job.id}', '${job.accountId}')">📍 Check In</button>`;
             }
 
@@ -129,16 +140,14 @@ function renderReadCalendar(jobs) {
 
 // --- GEOFENCING & ACTIONS ---
 
-// Shared wrapper to handle geolocation
 function runGeofencedAction(jobId, accountId, actionType) {
-    // actionType = 'in' or 'out'
     const btn = event.target;
     const originalText = btn.textContent;
     btn.disabled = true;
     btn.textContent = "Locating...";
 
     if (!navigator.geolocation) {
-        alert("Geolocation is not supported.");
+        alert("Geolocation is not supported by your browser.");
         btn.disabled = false;
         btn.textContent = originalText;
         return;
@@ -155,7 +164,7 @@ function runGeofencedAction(jobId, accountId, actionType) {
             const accData = accDoc.data();
 
             if (!accData.lat || !accData.lng) {
-                alert("Warning: No GPS pin for this building. Processing anyway.");
+                alert("Warning: No GPS pin for this building. Checking you in anyway.");
                 if (actionType === 'in') await processCheckIn(jobId);
                 else await processClockOut(jobId);
                 return;
@@ -168,7 +177,7 @@ function runGeofencedAction(jobId, accountId, actionType) {
                 if (actionType === 'in') await processCheckIn(jobId);
                 else await processClockOut(jobId);
             } else {
-                alert(`Too far away (${distanceKm.toFixed(2)}km). You must be on site.`);
+                alert(`You are too far away (${distanceKm.toFixed(2)}km). Please arrive at the site.`);
                 btn.disabled = false;
                 btn.textContent = originalText;
             }
@@ -180,7 +189,7 @@ function runGeofencedAction(jobId, accountId, actionType) {
             btn.textContent = originalText;
         }
     }, (err) => {
-        alert("GPS Error. Allow location access.");
+        alert("Unable to retrieve location. Please allow GPS access.");
         btn.disabled = false;
         btn.textContent = originalText;
     }, { enableHighAccuracy: true });
@@ -201,7 +210,7 @@ async function processCheckIn(jobId) {
         actualStartTime: firebase.firestore.FieldValue.serverTimestamp()
     });
     window.showToast("Checked In!");
-    refresh();
+    location.reload(); // Refresh to show new state
 }
 
 async function processClockOut(jobId) {
@@ -209,18 +218,11 @@ async function processClockOut(jobId) {
         status: 'Completed',
         actualEndTime: firebase.firestore.FieldValue.serverTimestamp()
     });
-    window.showToast("Clocked Out. Good job!");
-    refresh();
+    window.showToast("Clocked Out!");
+    location.reload(); // Refresh to show new state
 }
 
-function refresh() {
-    const user = auth.currentUser;
-    db.collection('employees').where('email', '==', user.email).get().then(snap => {
-        loadMyShifts(snap.docs[0].id);
-    });
-}
-
-// Math Utils
+// Haversine Formula
 function getDistanceFromLatLonInKm(lat1, lon1, lat2, lon2) {
   var R = 6371;
   var dLat = deg2rad(lat2-lat1);
@@ -230,7 +232,9 @@ function getDistanceFromLatLonInKm(lat1, lon1, lat2, lon2) {
   return R * c;
 }
 
-function deg2rad(deg) { return deg * (Math.PI/180) }
+function deg2rad(deg) {
+  return deg * (Math.PI/180)
+}
 
 window.changeWeek = function(offset) {
     currentWeekStart.setDate(currentWeekStart.getDate() + (offset * 7));

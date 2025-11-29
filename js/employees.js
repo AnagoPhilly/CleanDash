@@ -33,7 +33,7 @@ function loadEmployees() {
 
         snap.forEach(doc => {
             const e = doc.data();
-            // Escape special chars to prevent JS errors
+            // Escape special chars to prevent JS errors in onclick
             const safeName = (e.name || '').replace(/'/g, "\\'");
             const safeAddr = (e.address || '').replace(/'/g, "\\'");
 
@@ -105,8 +105,6 @@ window.saveEmployee = async function() {
     const phone = document.getElementById('empPhone').value.trim();
     const wage = parseFloat(document.getElementById('empWage').value) || 0;
     const status = document.getElementById('empStatus').value;
-
-    // IMPORTANT: Grab the address from the input
     const address = document.getElementById('empAddress').value.trim();
     const password = document.getElementById('empPassword').value.trim();
 
@@ -118,7 +116,7 @@ window.saveEmployee = async function() {
 
     // Data object to save to Firestore
     const data = {
-        name, role, email, phone, wage, status, address, // Added 'address' here
+        name, role, email, phone, wage, status, address,
         owner: window.currentUser.email
     };
 
@@ -126,7 +124,6 @@ window.saveEmployee = async function() {
         // 1. Geocode Address if provided
         if (address) {
             try {
-                // Using LocationIQ to get lat/lng
                 const url = `https://us1.locationiq.com/v1/search.php?key=${window.LOCATIONIQ_KEY}&q=${encodeURIComponent(address)}&format=json&limit=1`;
                 const res = await fetch(url);
                 const geoData = await res.json();
@@ -185,7 +182,7 @@ window.saveEmployee = async function() {
         closeEmployeeModal();
         loadEmployees();
 
-        // Refresh map if the function is available
+        // Refresh map if available
         if(typeof loadMap === 'function') setTimeout(loadMap, 500);
 
     } catch (e) {
@@ -207,7 +204,7 @@ window.editEmployee = function(id, name, role, email, phone, wage, status, addre
     document.getElementById('empPhone').value = phone;
     document.getElementById('empWage').value = wage;
     document.getElementById('empStatus').value = status;
-    document.getElementById('empAddress').value = address || ''; // Populate address field
+    document.getElementById('empAddress').value = address || '';
     document.getElementById('empPassword').value = '';
 
     // Show Reset Password button
@@ -239,5 +236,4 @@ window.deleteEmployee = async function(id, name) {
     }
 };
 
-// Export for main.js
 window.loadEmployees = loadEmployees;
