@@ -1,13 +1,14 @@
 // js/payroll.js
 
 let payrollStart = new Date();
-// Default to the 1st of the current month
 payrollStart.setDate(1);
 payrollStart.setHours(0,0,0,0);
 
 let payrollEnd = new Date();
-// Default to today
 payrollEnd.setHours(23,59,59,999);
+
+// Store data for export
+let currentPayrollExport = [];
 
 async function loadPayroll() {
     console.log("CleanDash: Loading Payroll...");
@@ -16,7 +17,6 @@ async function loadPayroll() {
 
     container.innerHTML = '<div style="text-align:center; padding:2rem; color:#888;">Calculating hours and wages...</div>';
 
-    // Update Date Inputs to match state
     document.getElementById('payStart').valueAsDate = payrollStart;
     document.getElementById('payEnd').valueAsDate = payrollEnd;
 
@@ -24,16 +24,16 @@ async function loadPayroll() {
 
     try {
         const ownerEmail = window.currentUser.email;
+        currentPayrollExport = []; // Reset export data
 
-        // 1. Fetch Employees (Active & Inactive)
+        // 1. Fetch Employees
         const empSnap = await db.collection('employees').where('owner', '==', ownerEmail).get();
         const employees = {};
         empSnap.forEach(doc => {
-            // Initialize every employee with 0 hours
-            employees[doc.id] = { ...doc.data(), hours: 0, shifts: 0, totalPay: 0 };
+            employees[doc.id] = { ...doc.data(), hours: 0, shifts: 0, totalPay: 0, jobList: [] };
         });
 
-        // 2. Fetch Completed Jobs in Date Range
+        // 2. Fetch Completed Jobs
         const jobsSnap = await db.collection('jobs')
             .where('owner', '==', ownerEmail)
             .where('status', '==', 'Completed')
@@ -45,27 +45,28 @@ async function loadPayroll() {
             const job = doc.data();
             const jobEnd = job.actualEndTime.toDate();
 
-            // Date Filter
             if (jobEnd >= payrollStart && jobEnd <= payrollEnd) {
                 const empId = job.employeeId;
-
-                // Only add if employee still exists in our records
                 if (employees[empId]) {
                     const start = job.actualStartTime.toDate();
                     const end = job.actualEndTime.toDate();
 
-                    // Calculate Hours (ms -> hours)
                     const durationHrs = (end - start) / (1000 * 60 * 60);
-
-                    employees[empId].hours += durationHrs;
-                    employees[empId].shifts += 1;
-
-                    // Calculate Pay
                     const wage = employees[empId].wage || 0;
                     const pay = durationHrs * wage;
 
+                    employees[empId].hours += durationHrs;
+                    employees[empId].shifts += 1;
                     employees[empId].totalPay += pay;
                     grandTotal += pay;
+
+                    employees[empId].jobList.push({
+                        date: start.toLocaleDateString(),
+                        time: `${formatTime(start)} - ${formatTime(end)}`,
+                        account: job.accountName,
+                        hours: durationHrs,
+                        pay: pay
+                    });
                 }
             }
         });
@@ -74,10 +75,10 @@ async function loadPayroll() {
         let html = `<table class="data-table">
             <thead>
                 <tr>
+                    <th style="width:40px;"></th>
                     <th>Employee</th>
                     <th style="text-align:center;">Shifts</th>
                     <th style="text-align:right;">Total Hours</th>
-                    <th style="text-align:right;">Wage</th>
                     <th style="text-align:right;">Gross Pay</th>
                 </tr>
             </thead>
@@ -85,60 +86,129 @@ async function loadPayroll() {
 
         const sortedIds = Object.keys(employees).sort((a,b) => employees[a].name.localeCompare(employees[b].name));
 
-        if (sortedIds.length === 0) {
-             html = '<div style="text-align:center; padding:3rem; color:#6b7280;">No employees found. Go to Team Management to add staff.</div>';
-        } else {
-            sortedIds.forEach(id => {
-                const e = employees[id];
+        sortedIds.forEach(id => {
+            const e = employees[id];
 
-                // Show row if: They have shifts OR they are Active
-                // (Hides inactive employees with 0 pay history for cleaner view)
-                if (e.shifts > 0 || e.status === 'Active') {
+            if (e.shifts > 0 || e.status === 'Active') {
+                // Add to export list
+                currentPayrollExport.push({
+                    name: e.name,
+                    role: e.role,
+                    shifts: e.shifts,
+                    hours: e.hours.toFixed(2),
+                    wage: e.wage.toFixed(2),
+                    total: e.totalPay.toFixed(2)
+                });
 
-                    // Formatting: Dim text if 0 hours
-                    const rowStyle = e.shifts === 0 ? 'color:#6b7280;' : 'font-weight:600; color:#111827;';
-                    const payStyle = e.shifts === 0 ? 'color:#9ca3af;' : 'color:#0d9488; font-weight:700;';
+                const rowStyle = e.shifts === 0 ? 'color:#6b7280;' : 'font-weight:600; color:#111827;';
+                const payStyle = e.shifts === 0 ? 'color:#9ca3af;' : 'color:#0d9488; font-weight:700;';
+                const cursorStyle = e.shifts > 0 ? 'cursor:pointer;' : 'cursor:default;';
+                const onclick = e.shifts > 0 ? `onclick="togglePayrollRow('${id}')"` : '';
+                const arrow = e.shifts > 0 ? `<span class="payroll-arrow" id="arrow-${id}">▶</span>` : '';
 
-                    html += `<tr style="${rowStyle}">
-                        <td>
-                            <div>${e.name}</div>
-                            <div style="font-size:0.8rem; opacity:0.8;">${e.role}</div>
-                        </td>
-                        <td style="text-align:center;">${e.shifts}</td>
-                        <td style="text-align:right;">${e.hours.toFixed(2)} hrs</td>
-                        <td style="text-align:right;">$${(e.wage || 0).toFixed(2)}</td>
-                        <td style="text-align:right; ${payStyle}">$${e.totalPay.toFixed(2)}</td>
-                    </tr>`;
+                html += `<tr class="payroll-row" id="row-${id}" ${onclick} style="${cursorStyle} ${rowStyle}">
+                    <td style="text-align:center;">${arrow}</td>
+                    <td>
+                        <div>${e.name}</div>
+                        <div style="font-size:0.8rem; opacity:0.8;">${e.role}</div>
+                    </td>
+                    <td style="text-align:center;">${e.shifts}</td>
+                    <td style="text-align:right;">${e.hours.toFixed(2)} hrs</td>
+                    <td style="text-align:right; ${payStyle}">$${e.totalPay.toFixed(2)}</td>
+                </tr>`;
+
+                if (e.shifts > 0) {
+                    e.jobList.sort((a, b) => new Date(a.date) - new Date(b.date));
+
+                    let detailHtml = `<tr id="detail-${id}" class="detail-row"><td colspan="5" style="padding:0;">
+                        <div style="padding:10px 20px;">
+                            <h5 style="margin:0 0 5px 0; color:#0f766e;">Shift Breakdown</h5>
+                            <table class="detail-table">
+                                <thead><tr><th>Date</th><th>Location</th><th>Time</th><th style="text-align:right;">Hours</th><th style="text-align:right;">Cost</th></tr></thead>
+                                <tbody>`;
+
+                    e.jobList.forEach(job => {
+                        detailHtml += `<tr>
+                            <td>${job.date}</td>
+                            <td>${job.account}</td>
+                            <td>${job.time}</td>
+                            <td style="text-align:right;">${job.hours.toFixed(2)}</td>
+                            <td style="text-align:right;">$${job.pay.toFixed(2)}</td>
+                        </tr>`;
+                    });
+
+                    detailHtml += `</tbody></table></div></td></tr>`;
+                    html += detailHtml;
                 }
-            });
-            html += '</tbody></table>';
-        }
+            }
+        });
 
+        html += '</tbody></table>';
         container.innerHTML = html;
         totalDisplay.textContent = '$' + grandTotal.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2});
 
     } catch (err) {
         console.error("Error loading payroll:", err);
-        container.innerHTML = '<div style="color:red; text-align:center;">Error loading payroll data. Check console for details.</div>';
+        container.innerHTML = '<div style="color:red; text-align:center;">Error loading payroll data.</div>';
     }
 }
 
-// Filter Logic
+// --- CSV EXPORT LOGIC ---
+window.exportPayrollCSV = function() {
+    if (currentPayrollExport.length === 0) {
+        return alert("No data to export for this date range.");
+    }
+
+    // 1. Define Headers
+    let csvContent = "data:text/csv;charset=utf-8,";
+    csvContent += "Employee Name,Role,Total Shifts,Total Hours,Hourly Wage,Gross Pay\n";
+
+    // 2. Add Data Rows
+    currentPayrollExport.forEach(row => {
+        csvContent += `"${row.name}","${row.role}",${row.shifts},${row.hours},${row.wage},${row.total}\n`;
+    });
+
+    // 3. Trigger Download
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement("a");
+    link.setAttribute("href", encodedUri);
+
+    // Filename: Payroll_Start_End.csv
+    const s = payrollStart.toISOString().split('T')[0];
+    const e = payrollEnd.toISOString().split('T')[0];
+    link.setAttribute("download", `Payroll_${s}_to_${e}.csv`);
+
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+};
+
+window.togglePayrollRow = function(id) {
+    const detailRow = document.getElementById(`detail-${id}`);
+    const mainRow = document.getElementById(`row-${id}`);
+
+    if (detailRow.classList.contains('show')) {
+        detailRow.classList.remove('show');
+        mainRow.classList.remove('expanded');
+    } else {
+        detailRow.classList.add('show');
+        mainRow.classList.add('expanded');
+    }
+};
+
 window.updatePayrollDates = function() {
     const startVal = document.getElementById('payStart').value;
     const endVal = document.getElementById('payEnd').value;
-
     if(startVal) payrollStart = new Date(startVal);
     if(endVal) {
         payrollEnd = new Date(endVal);
-        payrollEnd.setHours(23,59,59,999); // End of that day
+        payrollEnd.setHours(23,59,59,999);
     }
-
     loadPayroll();
 };
 
-window.exportPayrollCSV = function() {
-    alert("CSV Export coming in v1.2!");
-};
+function formatTime(date) {
+    return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+}
 
 window.loadPayroll = loadPayroll;

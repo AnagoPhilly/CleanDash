@@ -507,6 +507,45 @@ input:checked + .slider:before { transform: translateX(22px); }
     border: 1px solid #d1d5db;
 }
 
+/* --- PAYROLL DRILL-DOWN --- */
+.payroll-row { cursor: pointer; transition: background 0.1s; }
+.payroll-row:hover { background: #f9fafb; }
+
+.payroll-arrow {
+    display: inline-block;
+    transition: transform 0.2s;
+    font-size: 0.7rem;
+    margin-right: 8px;
+    color: #9ca3af;
+}
+
+.payroll-row.expanded .payroll-arrow {
+    transform: rotate(90deg);
+    color: var(--primary);
+}
+
+.detail-row {
+    background-color: #f0fdfa; /* Very light teal */
+    display: none; /* Hidden by default */
+}
+
+.detail-row.show {
+    display: table-row;
+    animation: fadeIn 0.3s ease;
+}
+
+.detail-table {
+    width: 95%;
+    margin: 10px auto;
+    background: white;
+    border: 1px solid #e5e7eb;
+    border-radius: 6px;
+    font-size: 0.85rem;
+}
+
+.detail-table th { background: #f3f4f6; color: #6b7280; font-weight: 600; padding: 8px; text-transform: none; }
+.detail-table td { padding: 8px; border-bottom: 1px solid #eee; color: #374151; }
+
 /* --- MOBILE OPTIMIZATION --- */
 @media (max-width: 768px) {
     /* 1. Stack the Calendar Vertically */
