@@ -13,8 +13,14 @@
 * { margin:0; padding:0; box-sizing:border-box; }
 body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: var(--bg); color: var(--text-dark); -webkit-print-color-adjust: exact; print-color-adjust: exact; }
 
+/* --- ACCESSIBILITY HELPERS --- */
+.vh {
+    position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+    overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0;
+}
+
 /* --- GLOBAL LAYOUT SYSTEM --- */
-.page-container { max-width: 1200px; margin: 0 auto; width: 100%; }
+.page-container { max-width: 1400px; margin: 0 auto; width: 100%; }
 .content-card {
   background: white; border-radius: 16px;
   box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
@@ -83,7 +89,7 @@ body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background:
     .sidebar { width: 100%; height: auto; flex-direction: row; flex-wrap: wrap; align-items: center; justify-content: space-between; padding: 0.5rem; overflow: visible; }
     .sidebar-header { padding: 0.5rem 1rem; border: none; }
     .sidebar-header h1 { font-size: 1.4rem; }
-    .sidebar-header div { display: none; } 
+    .sidebar-header div { display: none; }
     .nav { display: flex; overflow-x: auto; padding: 0; flex: 1; -webkit-overflow-scrolling: touch; }
     .nav-item { padding: 0.8rem 1rem; white-space: nowrap; font-size: 0.9rem; }
     .logout { border: none; padding: 0.8rem; }
@@ -143,6 +149,7 @@ input:checked + .slider:before { transform: translateX(22px); }
 .chart-container h4 { margin-top: 0; font-size: 1rem; color: var(--text-med); margin-bottom: 1rem; }
 .revenue-chart { height: 30px; border-radius: 6px; overflow: hidden; display: flex; margin-bottom: 1rem; }
 .chart-segment { height: 100%; display: flex; align-items: center; justify-content: center; color: white; font-size: 0.75rem; font-weight: 700; text-shadow: 0 1px 2px rgba(0,0,0,0.2); transition: width 0.5s ease; }
+.chart-segment:hover { opacity: 0.8; }
 .chart-legend { display: flex; flex-wrap: wrap; gap: 1rem; }
 .legend-item { display: flex; align-items: center; font-size: 0.85rem; color: var(--text-med); }
 .legend-color { width: 10px; height: 10px; border-radius: 3px; margin-right: 6px; }
@@ -197,9 +204,9 @@ input:checked + .slider:before { transform: translateX(22px); }
 
 /* --- TABLE ACTION BUTTONS (Mini Pills) --- */
 .action-buttons { display: flex; gap: 0.5rem; justify-content: center; flex-wrap: wrap; }
-.btn-xs { 
-    display: inline-flex; align-items: center; gap: 4px; padding: 4px 10px; 
-    font-size: 0.75rem; border-radius: 20px; border: 1px solid transparent; 
+.btn-xs {
+    display: inline-flex; align-items: center; gap: 4px; padding: 4px 10px;
+    font-size: 0.75rem; border-radius: 20px; border: 1px solid transparent;
     font-weight: 600; cursor: pointer; transition: all 0.2s; text-decoration: none; line-height: 1;
 }
 .btn-xs:hover { transform: translateY(-1px); box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
@@ -298,34 +305,34 @@ input:checked + .slider:before { transform: translateX(22px); }
 #hidden-flyer { position: absolute; left: -9999px; top: 0; width: 800px; background: white; z-index: -1; }
 
 /* --- FLYER STYLES (Print Optimized 1-Page) --- */
-.flyer-container { 
-    padding: 20px; font-family: 'Segoe UI', Tahoma, sans-serif; background: white; color: #000; 
+.flyer-container {
+    padding: 20px; font-family: 'Segoe UI', Tahoma, sans-serif; background: white; color: #000;
     box-sizing: border-box; height: 100%;
 }
-.flyer-header { 
-    text-align: center; border-bottom: 3px solid #000; padding-bottom: 8px; margin-bottom: 15px; 
+.flyer-header {
+    text-align: center; border-bottom: 3px solid #000; padding-bottom: 8px; margin-bottom: 15px;
 }
-.flyer-header h1 { 
-    font-size: 28px; font-weight: 900; text-transform: uppercase; margin: 0; color: #000; letter-spacing: 1px; 
+.flyer-header h1 {
+    font-size: 28px; font-weight: 900; text-transform: uppercase; margin: 0; color: #000; letter-spacing: 1px;
 }
-.flyer-header .flyer-sub { 
-    font-size: 14px; font-weight: 600; margin-top: 3px; color: #333; text-transform: uppercase; 
+.flyer-header .flyer-sub {
+    font-size: 14px; font-weight: 600; margin-top: 3px; color: #333; text-transform: uppercase;
 }
-.flyer-intro { 
-    font-size: 12px; line-height: 1.3; text-align: center; margin-bottom: 15px; max-width: 90%; 
-    margin-left: auto; margin-right: auto; font-style: italic; color: #222; 
+.flyer-intro {
+    font-size: 12px; line-height: 1.3; text-align: center; margin-bottom: 15px; max-width: 90%;
+    margin-left: auto; margin-right: auto; font-style: italic; color: #222;
 }
-.flyer-grid { 
-    display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 15px; 
+.flyer-grid {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 15px;
 }
-.flyer-box { 
-    border: 1px solid #ccc; padding: 8px; border-radius: 4px; text-align: left; 
+.flyer-box {
+    border: 1px solid #ccc; padding: 8px; border-radius: 4px; text-align: left;
 }
-.flyer-label { 
-    display: block; font-size: 9px; font-weight: 700; text-transform: uppercase; color: #555; margin-bottom: 2px; 
+.flyer-label {
+    display: block; font-size: 9px; font-weight: 700; text-transform: uppercase; color: #555; margin-bottom: 2px;
 }
-.flyer-value { 
-    font-size: 14px; font-weight: 700; color: #000; line-height: 1.1; 
+.flyer-value {
+    font-size: 14px; font-weight: 700; color: #000; line-height: 1.1;
 }
 .flyer-value.pay { color: #0d9488; }
 .flyer-content-grid {
@@ -333,13 +340,13 @@ input:checked + .slider:before { transform: translateX(22px); }
 }
 .flyer-column { display: flex; flex-direction: column; gap: 10px; }
 .flyer-section { margin-bottom: 5px; }
-.flyer-section h3 { 
-    font-size: 13px; font-weight: 800; text-transform: uppercase; border-bottom: 2px solid #0d9488; 
-    padding-bottom: 2px; margin-bottom: 5px; color: #0d9488; 
+.flyer-section h3 {
+    font-size: 13px; font-weight: 800; text-transform: uppercase; border-bottom: 2px solid #0d9488;
+    padding-bottom: 2px; margin-bottom: 5px; color: #0d9488;
 }
 .flyer-list { list-style: none; padding: 0; margin: 0; }
-.flyer-list li { 
-    font-size: 11px; padding: 2px 0; border-bottom: 1px dotted #ccc; line-height: 1.2; color: #111; 
+.flyer-list li {
+    font-size: 11px; padding: 2px 0; border-bottom: 1px dotted #ccc; line-height: 1.2; color: #111;
 }
 .flyer-list li:last-child { border-bottom: none; }
 .flyer-apply-section { margin-top: 15px; padding: 0; width: 100%; }
@@ -352,69 +359,198 @@ input:checked + .slider:before { transform: translateX(22px); }
   .sidebar, .nav, .pnl-controls, .no-print, .ad-actions-row, .marketing-controls, .ad-form-grid, .card-header, #toast, .modal, .add-btn, .pnl-btn { display: none !important; }
 }
 
-/* ... [All previous standard CSS] ... */
-
-/* --- METRICS PAGE STYLES --- */
-.metrics-layout {
+/* --- SCHEDULER CALENDAR --- */
+.scheduler-grid {
     display: grid;
-    grid-template-columns: 350px 1fr;
-    gap: 2rem;
-    height: 100%;
-    transition: all 0.3s ease; /* Smooth animation */
-}
-
-/* Class to apply via JS to hide input and expand chart */
-.metrics-layout.expanded-graph {
-    grid-template-columns: 1fr;
-}
-
-.metrics-input-section {
-    background: #f9fafb;
-    padding: 1.5rem;
-    border-radius: 8px;
+    grid-template-columns: repeat(7, 1fr); /* 7 Equal Columns */
+    gap: 10px;
+    background: #f3f4f6;
     border: 1px solid #e5e7eb;
+    border-radius: 8px;
+    overflow-x: auto; /* Scroll on mobile */
+    min-height: 600px;
+}
+
+.calendar-col {
+    background: white;
+    min-width: 140px; /* Ensure columns don't squish too much */
     display: flex;
     flex-direction: column;
-    transition: all 0.3s ease;
+    border-right: 1px solid #f3f4f6;
 }
 
-/* Class to hide the input panel */
-.metrics-input-section.hidden {
-    display: none;
-}
+.calendar-col:last-child { border-right: none; }
 
-.metrics-textarea {
-    flex: 1;
-    width: 100%;
-    padding: 1rem;
-    border: 1px solid #d1d5db;
-    border-radius: 6px;
-    font-family: monospace;
-    font-size: 0.85rem;
-    resize: none;
-    min-height: 400px;
-}
-
-.metrics-label {
+.cal-header {
+    background: #f9fafb;
+    padding: 10px;
+    text-align: center;
     font-weight: 700;
     color: var(--text-dark);
-    margin-bottom: 0.5rem;
-    display: block;
+    border-bottom: 2px solid #e5e7eb;
+    font-size: 0.9rem;
+    position: sticky;
+    top: 0;
+    z-index: 10;
 }
 
-.metrics-chart-section {
-    background: white;
-    border-radius: 8px;
-    padding: 1rem;
-    border: 1px solid #e5e7eb;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    min-height: 500px;
+.shift-card {
+    background: #f0fdfa; /* Light Teal */
+    border-left: 4px solid var(--primary);
+    padding: 8px;
+    margin: 8px;
+    border-radius: 4px;
+    font-size: 0.85rem;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+    position: relative;
+    transition: transform 0.1s;
 }
 
-@media (max-width: 900px) {
-    .metrics-layout { grid-template-columns: 1fr; }
-    .metrics-textarea { min-height: 200px; }
-    .metrics-chart-section { min-height: 300px; }
+.shift-card:hover { transform: scale(1.02); }
+
+.shift-time { font-weight: 700; color: var(--text-dark); font-size: 0.8rem; }
+.shift-loc { color: var(--primary); font-weight: 600; margin-top: 2px; }
+.shift-emp { color: #6b7280; margin-top: 4px; font-size: 0.8rem; }
+
+.shift-actions {
+    position: absolute;
+    top: 4px;
+    right: 6px;
+    cursor: pointer;
+    color: #ef4444;
+    font-weight: bold;
+    font-size: 1.1rem;
+    display: none; /* Hide X unless hovering */
+}
+
+.shift-card:hover .shift-actions { display: block; }
+
+.btn-add-shift {
+    margin-top: auto; /* Push to bottom */
+    width: 100%;
+    background: transparent;
+    border: none;
+    border-top: 1px dashed #ddd;
+    color: #9ca3af;
+    padding: 10px;
+    cursor: pointer;
+    font-size: 0.8rem;
+    transition: 0.2s;
+}
+
+.btn-add-shift:hover { background: #f9fafb; color: var(--primary); }
+
+/* Check-In Button Styles */
+.btn-checkin {
+    background: #10b981; /* Green */
+    color: white;
+    border: none;
+    padding: 8px 12px;
+    border-radius: 6px;
+    font-weight: 600;
+    width: 100%;
+    margin-top: 8px;
+    cursor: pointer;
+    font-size: 0.9rem;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    transition: background 0.2s;
+}
+
+.btn-checkin:hover {
+    background: #059669;
+}
+
+.btn-checkin:disabled {
+    background: #9ca3af;
+    cursor: not-allowed;
+}
+
+/* Red Clock Out Button */
+.btn-clockout {
+    background: #ef4444; /* Red */
+    color: white;
+    border: none;
+    padding: 8px 12px;
+    border-radius: 6px;
+    font-weight: 600;
+    width: 100%;
+    margin-top: 4px;
+    cursor: pointer;
+    font-size: 0.9rem;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    transition: background 0.2s;
+}
+
+.btn-clockout:hover { background: #dc2626; }
+.btn-clockout:disabled { background: #fca5a5; cursor: wait; }
+
+/* Status Badges */
+.status-badge.started {
+    margin-top: 8px;
+    font-size: 0.85rem;
+    color: #047857;
+    background: #d1fae5;
+    padding: 4px 8px;
+    border-radius: 4px;
+    text-align: center;
+}
+
+.status-badge.completed {
+    margin-top: 8px;
+    font-size: 0.8rem;
+    color: #4b5563;
+    background: #e5e7eb; /* Gray */
+    padding: 4px 8px;
+    border-radius: 4px;
+    text-align: center;
+    font-weight: 600;
+    border: 1px solid #d1d5db;
+}
+
+/* --- MOBILE OPTIMIZATION --- */
+@media (max-width: 768px) {
+    /* 1. Stack the Calendar Vertically */
+    .scheduler-grid {
+        grid-template-columns: 1fr; /* Single column */
+        height: auto; /* Allow it to grow tall */
+        overflow-y: visible;
+        overflow-x: hidden;
+    }
+
+    .calendar-col {
+        border-right: none;
+        border-bottom: 4px solid #e5e7eb; /* Thick separator between days */
+        min-height: auto; /* Let it shrink if empty */
+    }
+
+    /* 2. Sticky Headers for Vertical Scrolling */
+    .cal-header {
+        position: sticky;
+        top: 0;
+        z-index: 20;
+        background: #f3f4f6;
+        text-align: left;
+        padding-left: 1rem;
+        border-bottom: 1px solid #d1d5db;
+        color: var(--primary);
+    }
+
+    /* 3. Make Shift Cards "Tappable" */
+    .shift-card {
+        padding: 12px;
+        margin: 10px;
+        font-size: 0.95rem; /* Larger text for mobile */
+        border-left-width: 6px;
+    }
+
+    .shift-time { font-size: 1rem; }
+
+    /* 4. Hide the "Add Shift" button on mobile (optional, if owners only schedule on desktop)
+       or make it larger for easier tapping */
+    .btn-add-shift {
+        padding: 15px;
+        font-size: 1rem;
+        color: var(--primary);
+        font-weight: bold;
+    }
 }

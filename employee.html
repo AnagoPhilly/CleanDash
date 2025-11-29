@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <title>CleanDash | Team Portal</title>
+
+    <link rel="stylesheet" href="style.css" />
+
+    <style>
+        .app-container { flex-direction: column; }
+        .sidebar { width: 100%; height: auto; flex-direction: row; justify-content: space-between; padding: 0.5rem 1rem; }
+        .nav { display: none; } /* Hide standard nav */
+        .main-content { padding: 1rem; }
+        .logout-btn { background: #374151; border: 1px solid #4b5563; padding: 5px 15px; border-radius: 6px; cursor: pointer; font-size: 0.9rem; }
+
+        /* Mobile Calendar Tweaks */
+        .scheduler-grid { min-height: 500px; }
+        .cal-header { font-size: 0.8rem; }
+    </style>
+</head>
+<body>
+
+<div id="appLoading"><div>Loading Schedule...</div><div></div></div>
+
+<div id="app" class="app-container" style="display:none;">
+
+    <div class="sidebar">
+        <div class="sidebar-header" style="border:none; padding:0;">
+            <h1 style="font-size:1.2rem;">CleanDash <span style="font-weight:400; font-size:0.9rem; opacity:0.8;">| Team</span></h1>
+        </div>
+        <div class="logout-btn" onclick="logout()">Logout</div>
+    </div>
+
+    <div class="main-content">
+        <div class="page-container" style="max-width: 100%;">
+
+            <div class="content-card">
+                <div class="card-header">
+                    <div>
+                        <h2 id="welcomeMsg">My Schedule</h2>
+                        <p id="weekRangeDisplay">Loading dates...</p>
+                    </div>
+                    <div style="display:flex; gap:10px;">
+                        <button class="btn btn-secondary" onclick="changeWeek(-1)">←</button>
+                        <button class="btn btn-secondary" onclick="changeWeek(1)">→</button>
+                    </div>
+                </div>
+
+                <div id="schedulerGrid" class="scheduler-grid"></div>
+            </div>
+
+        </div>
+    </div>
+</div>
+
+<div id="toast"></div>
+
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
+
+<script src="js/utils.js"></script>
+<script src="js/auth.js"></script>
+<script src="js/employee_portal.js"></script>
+
+</body>
+</html>

@@ -42,10 +42,17 @@ function startApp() {
                 console.error("CleanDash: Target page not found:", item.dataset.page);
             }
     
-            // E. Run page-specific loaders (Check if the function from the relevant JS file exists)
+            // E. Run page-specific loaders
             const page = item.dataset.page;
             if (page === 'dashboard' && typeof window.loadMap === 'function') window.loadMap();
             if (page === 'accounts' && typeof window.loadAccountsList === 'function') window.loadAccountsList();
+
+            // NEW: Load Employees (Phase 1)
+            if (page === 'employees' && typeof window.loadEmployees === 'function') window.loadEmployees();
+
+            // NEW: Load Scheduler (Phase 2)
+            if (page === 'scheduler' && typeof window.loadScheduler === 'function') window.loadScheduler();
+
             if (page === 'pnl' && typeof window.loadPnL === 'function') window.loadPnL();
             if (page === 'cfee_calc' && typeof window.initCfeeCalc === 'function') window.initCfeeCalc();
             if (page === 'profile' && typeof window.loadProfile === 'function') window.loadProfile();
