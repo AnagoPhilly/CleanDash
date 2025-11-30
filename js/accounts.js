@@ -16,39 +16,75 @@ function loadAccountsList() {
     let html = `<table class="data-table">
       <thead>
         <tr>
-          <th>Name</th>
-          <th>Address</th>
+          <th>Name / Contact</th>
+          <th>Address / Alarm</th>
+          <th style="text-align:center;">Status</th>
           <th style="text-align:right;">Revenue</th>
           <th style="text-align:center;">Actions</th>
         </tr>
       </thead>
       <tbody>`;
-      
+
+    const today = new Date().toISOString().split('T')[0];
+
     snap.forEach(doc => {
       const a = doc.data();
-      // FIX 1: Escape special characters in both Name and Address to prevent syntax errors
-      const safeName = a.name.replace(/'/g, "\\'");
-      const safeAddress = a.address.replace(/'/g, "\\'"); 
-      const startDateDisplay = a.startDate ? `<br><span style="font-size:0.75rem; color:#6b7280; font-weight:400;">Start: ${a.startDate}</span>` : '';
-      
-      // FIX 2: Removed the extra single quote after ${a.revenue} that was causing the crash
-      html += `<tr>
-        <td style="font-weight:600; color:#111827;">${a.name}${startDateDisplay}</td>
-        <td style="color:#6b7280; font-size:0.9rem;">${a.address}</td>
+      const safeName = (a.name || '').replace(/'/g, "\\'");
+      const safeAddress = (a.address || '').replace(/'/g, "\\'");
+
+      // Status Logic
+      let isActive = true;
+      let statusBadge = `<span style="background:#d1fae5; color:#065f46; padding:2px 8px; border-radius:12px; font-size:0.75rem; font-weight:700;">Active</span>`;
+      let rowStyle = '';
+
+      if (a.endDate && a.endDate <= today) {
+          isActive = false;
+          statusBadge = `<span style="background:#f3f4f6; color:#6b7280; padding:2px 8px; border-radius:12px; font-size:0.75rem;">Inactive</span>`;
+          rowStyle = 'opacity: 0.6; background: #fafafa;';
+      }
+
+      // --- NEW CONTACT DISPLAY LOGIC ---
+      let contactParts = [];
+      if (a.contactName) contactParts.push(`👤 ${a.contactName}`);
+      if (a.contactPhone) contactParts.push(`📞 ${a.contactPhone}`);
+      if (a.contactEmail) contactParts.push(`✉️ ${a.contactEmail}`);
+
+      const contactDisplay = contactParts.length > 0
+          ? `<div style="font-size:0.8rem; color:#6b7280; margin-top:2px;">${contactParts.join(' &nbsp;•&nbsp; ')}</div>`
+          : '';
+
+      const alarmDisplay = a.alarmCode ? `<div style="font-size:0.75rem; color:#ef4444; font-weight:bold; margin-top:2px;">🚨 Alarm: ${a.alarmCode}</div>` : '';
+
+      html += `<tr style="${rowStyle}">
+        <td>
+            <div style="font-weight:600; color:#111827;">${a.name}</div>
+            ${contactDisplay}
+        </td>
+        <td>
+            <div style="color:#4b5563; font-size:0.9rem;">${a.address}</div>
+            ${alarmDisplay}
+        </td>
+        <td style="text-align:center;">${statusBadge}</td>
         <td class="col-revenue">$${(a.revenue || 0).toLocaleString()}</td>
         <td style="text-align:center;">
             <div class="action-buttons">
-                <button onclick="openSpecsModal('${doc.id}', '${safeName}', 'add')" 
-                        class="btn-xs btn-specs-add">
-                    <span>+</span> Specs
-                </button>
-                <button onclick="openSpecsModal('${doc.id}', '${safeName}', 'view')" 
+                <button onclick="openSpecsModal('${doc.id}', '${safeName}', 'view')"
                         class="btn-xs btn-specs-view">
-                    <span>👁️</span> View
+                    <span>👁️</span> Specs
                 </button>
-                <button onclick="showEditAccount('${doc.id}', '${safeName}', '${safeAddress}', ${a.revenue || 0}, '${a.startDate || ''}')" 
-                        class="btn-xs btn-edit">Edit</button>
-                <button onclick="deleteAccount('${doc.id}', '${safeName}')" 
+                <button onclick="showEditAccount(
+                    '${doc.id}',
+                    '${safeName}',
+                    '${safeAddress}',
+                    ${a.revenue || 0},
+                    '${a.startDate || ''}',
+                    '${a.endDate || ''}',
+                    '${a.contactName || ''}',
+                    '${a.contactPhone || ''}',
+                    '${a.contactEmail || ''}',
+                    '${a.alarmCode || ''}'
+                )" class="btn-xs btn-edit">Edit</button>
+                <button onclick="deleteAccount('${doc.id}', '${safeName}')"
                         class="btn-xs btn-delete">Delete</button>
             </div>
         </td>
@@ -58,134 +94,6 @@ function loadAccountsList() {
   });
 }
 
-// --- SPECS MODAL LOGIC (LINK REFERENCE VERSION) ---
-
-window.openSpecsModal = function(id, name, mode) {
-    document.getElementById('specsModal').style.display = 'flex';
-    document.getElementById('specsModalTitle').textContent = `Specs: ${name}`;
-    document.getElementById('currentSpecAccountId').value = id;
-    
-    // Clear inputs
-    document.getElementById('newSpecName').value = '';
-    document.getElementById('newSpecUrl').value = ''; 
-
-    loadRealSpecs(id);
-
-    if (mode === 'add') {
-        setTimeout(() => document.getElementById('newSpecName').focus(), 100);
-    }
-};
-
-window.closeSpecsModal = function() {
-    document.getElementById('specsModal').style.display = 'none';
-};
-
-// SAVE LINK TO FIRESTORE (No Storage Cost)
-window.saveSpecLink = async function() {
-    const accountId = document.getElementById('currentSpecAccountId').value;
-    const nameInput = document.getElementById('newSpecName');
-    const urlInput = document.getElementById('newSpecUrl');
-    const btn = document.querySelector('.specs-upload-box button');
-    
-    const name = nameInput.value.trim();
-    let url = urlInput.value.trim();
-
-    if (!name || !url) {
-        alert("Please enter a document name and a valid URL link.");
-        return;
-    }
-
-    // Basic URL fix if they forgot https
-    if (!url.match(/^https?:\/\//i)) {
-        url = 'https://' + url;
-    }
-
-    try {
-        btn.disabled = true;
-        btn.textContent = "Saving...";
-
-        await db.collection('accounts').doc(accountId).collection('specs').add({
-            name: name,
-            url: url,
-            type: 'link',
-            createdAt: firebase.firestore.FieldValue.serverTimestamp()
-        });
-
-        window.showToast(`Saved Link: ${name}`);
-        nameInput.value = '';
-        urlInput.value = '';
-        loadRealSpecs(accountId);
-
-    } catch (error) {
-        console.error("Save error:", error);
-        alert("Error saving link: " + error.message);
-    } finally {
-        btn.disabled = false;
-        btn.textContent = "Save Document Link";
-    }
-};
-
-// LOAD SPECS
-async function loadRealSpecs(accountId) {
-    const listDiv = document.getElementById('specsList');
-    listDiv.innerHTML = '<div class="empty-specs">Loading documents...</div>';
-
-    try {
-        const snap = await db.collection('accounts').doc(accountId).collection('specs')
-                             .orderBy('createdAt', 'desc').get();
-
-        if (snap.empty) {
-            listDiv.innerHTML = '<div class="empty-specs">No specifications added yet.<br>Paste a Google Drive or Dropbox link above.</div>';
-            return;
-        }
-
-        let html = '';
-        snap.forEach(doc => {
-            const spec = doc.data();
-            const dateStr = spec.createdAt ? new Date(spec.createdAt.toDate()).toLocaleDateString() : 'Just now';
-            
-            // Clean up display URL for UI
-            let displayUrl = spec.url;
-            if(displayUrl.length > 30) displayUrl = displayUrl.substring(0, 30) + '...';
-
-            html += `
-            <div class="spec-item">
-                <div class="spec-info">
-                    <div class="spec-icon">🔗</div>
-                    <div>
-                        <div class="spec-name">${spec.name}</div>
-                        <div class="spec-meta"><a href="${spec.url}" target="_blank" style="color:#6b7280; text-decoration:none;">${displayUrl}</a> • ${dateStr}</div>
-                    </div>
-                </div>
-                <div class="spec-actions">
-                    <a href="${spec.url}" target="_blank" class="btn-view-doc">Open Link</a>
-                    <span class="btn-delete-doc" onclick="deleteSpec('${accountId}', '${doc.id}')" title="Delete">&times;</span>
-                </div>
-            </div>
-            `;
-        });
-
-        listDiv.innerHTML = html;
-
-    } catch (error) {
-        console.error("Load error:", error);
-        listDiv.innerHTML = '<div class="empty-specs" style="color:red">Error loading documents.</div>';
-    }
-}
-
-// DELETE SPEC
-window.deleteSpec = async function(accountId, specId) {
-    if (!confirm("Remove this document link?")) return;
-    
-    try {
-        await db.collection('accounts').doc(accountId).collection('specs').doc(specId).delete();
-        window.showToast("Link removed");
-        loadRealSpecs(accountId);
-    } catch (error) {
-        alert("Error deleting: " + error.message);
-    }
-};
-
 // --- CRUD Operations ---
 
 window.showAddAccount = function() {
@@ -194,10 +102,8 @@ window.showAddAccount = function() {
 
 window.hideAddAccount = function() {
   document.getElementById('addAccountModal').style.display = 'none';
-  ['accountName','accountAddress','accountRevenue','accountStartDate'].forEach(id => {
-    const el = document.getElementById(id);
-    if(el) el.value = '';
-  });
+  const inputs = document.querySelectorAll('#addAccountModal input');
+  inputs.forEach(i => i.value = '');
 }
 
 window.saveNewAccount = async () => {
@@ -205,16 +111,23 @@ window.saveNewAccount = async () => {
     const address = document.getElementById('accountAddress').value.trim();
     const revenue = Number(document.getElementById('accountRevenue').value);
     const startDate = document.getElementById('accountStartDate').value;
+    const endDate = document.getElementById('accountEndDate').value;
+    const alarm = document.getElementById('accountAlarm').value.trim();
 
-    if (!name || !address || !revenue) return alert('Please fill all fields');
+    const cName = document.getElementById('contactName').value.trim();
+    const cPhone = document.getElementById('contactPhone').value.trim();
+    const cEmail = document.getElementById('contactEmail').value.trim();
+
+    if (!name || !address) return alert('Name and Address are required');
 
     try {
         const url = `https://us1.locationiq.com/v1/search.php?key=${window.LOCATIONIQ_KEY}&q=${encodeURIComponent(address)}&format=json&limit=1`;
         const res = await fetch(url);
         const data = await res.json();
-        
+
         const accountData = {
-            name, address, revenue, startDate,
+            name, address, revenue, startDate, endDate, alarmCode: alarm,
+            contactName: cName, contactPhone: cPhone, contactEmail: cEmail,
             owner: window.currentUser.email,
             createdAt: firebase.firestore.FieldValue.serverTimestamp()
         };
@@ -235,12 +148,19 @@ window.saveNewAccount = async () => {
     }
 };
 
-window.showEditAccount = function(id, name, address, revenue, startDate) {
+window.showEditAccount = function(id, name, address, revenue, startDate, endDate, cName, cPhone, cEmail, alarm) {
   document.getElementById('editAccountId').value = id;
   document.getElementById('editAccountName').value = name;
   document.getElementById('editAccountAddress').value = address;
   document.getElementById('editAccountRevenue').value = revenue;
   document.getElementById('editAccountStartDate').value = startDate || '';
+  document.getElementById('editAccountEndDate').value = endDate || '';
+
+  document.getElementById('editContactName').value = cName || '';
+  document.getElementById('editContactPhone').value = cPhone || '';
+  document.getElementById('editContactEmail').value = cEmail || '';
+  document.getElementById('editAccountAlarm').value = alarm || '';
+
   document.getElementById('editAccountModal').style.display = 'flex';
 }
 
@@ -251,19 +171,30 @@ window.hideEditAccount = function() {
 window.saveEditedAccount = async (event) => {
     const btn = event.target;
     btn.disabled = true; btn.textContent = 'Saving...';
-    
+
     const id = document.getElementById('editAccountId').value;
     const name = document.getElementById('editAccountName').value.trim();
     const address = document.getElementById('editAccountAddress').value.trim();
     const revenue = Number(document.getElementById('editAccountRevenue').value);
     const startDate = document.getElementById('editAccountStartDate').value;
+    const endDate = document.getElementById('editAccountEndDate').value;
+    const alarm = document.getElementById('editAccountAlarm').value.trim();
+
+    const cName = document.getElementById('editContactName').value.trim();
+    const cPhone = document.getElementById('editContactPhone').value.trim();
+    const cEmail = document.getElementById('editContactEmail').value.trim();
 
     try {
-        await db.collection('accounts').doc(id).update({ name, address, revenue, startDate });
+        await db.collection('accounts').doc(id).update({
+            name, address, revenue, startDate, endDate,
+            alarmCode: alarm, contactName: cName, contactPhone: cPhone, contactEmail: cEmail
+        });
         window.showToast('Updated!');
         window.hideEditAccount();
         loadAccountsList();
         if (typeof loadMap === 'function') loadMap();
+        if (typeof generateMetricsGraphFromDB === 'function') generateMetricsGraphFromDB();
+
     } catch (e) {
         alert('Error: ' + e.message);
     } finally {

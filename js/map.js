@@ -2,193 +2,174 @@
 let map = null;
 
 // --- CONFIGURATION ---
-// We make the icons 40% larger for better visibility
 const ICON_DIMS = {
-    size: [35, 57],       // Width, Height (Standard is [25, 41])
-    anchor: [17, 57],     // Point of the icon which will correspond to marker's location
-    popup: [1, -54],      // Point from which the popup should open relative to the iconAnchor
-    shadow: [50, 50]      // Size of the shadow
+    size: [35, 57],
+    anchor: [17, 57],
+    popup: [1, -54],
+    shadow: [50, 50]
 };
 
 // --- ICONS ---
-
-// Red = Home Base (Owner)
 const HomeIcon = L.icon({
     iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-red.png',
     shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/0.7.7/images/marker-shadow.png',
-    iconSize: ICON_DIMS.size,
-    iconAnchor: ICON_DIMS.anchor,
-    popupAnchor: ICON_DIMS.popup,
-    shadowSize: ICON_DIMS.shadow
+    iconSize: ICON_DIMS.size, iconAnchor: ICON_DIMS.anchor, popupAnchor: ICON_DIMS.popup, shadowSize: ICON_DIMS.shadow
 });
 
-// Green = Employees (Staff)
 const StaffIcon = L.icon({
     iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-green.png',
     shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/0.7.7/images/marker-shadow.png',
-    iconSize: ICON_DIMS.size,
-    iconAnchor: ICON_DIMS.anchor,
-    popupAnchor: ICON_DIMS.popup,
-    shadowSize: ICON_DIMS.shadow
+    iconSize: ICON_DIMS.size, iconAnchor: ICON_DIMS.anchor, popupAnchor: ICON_DIMS.popup, shadowSize: ICON_DIMS.shadow
 });
 
-// Blue = Client Accounts (Standardized to match others)
 const AccountIcon = L.icon({
     iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-blue.png',
     shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/0.7.7/images/marker-shadow.png',
-    iconSize: ICON_DIMS.size,
-    iconAnchor: ICON_DIMS.anchor,
-    popupAnchor: ICON_DIMS.popup,
-    shadowSize: ICON_DIMS.shadow
+    iconSize: ICON_DIMS.size, iconAnchor: ICON_DIMS.anchor, popupAnchor: ICON_DIMS.popup, shadowSize: ICON_DIMS.shadow
 });
 
-// Utility to get geocode data
 async function getGeocode(address) {
     if (!address) return null;
     try {
         const url = `https://us1.locationiq.com/v1/search.php?key=${window.LOCATIONIQ_KEY}&q=${encodeURIComponent(address)}&format=json&limit=1`;
         const res = await fetch(url);
         const data = await res.json();
-        if (data && data[0]) {
-            return { lat: parseFloat(data[0].lat), lng: parseFloat(data[0].lon) };
-        }
-    } catch (e) {
-        console.error("Geocoding failed for address:", address, e);
-    }
+        if (data && data[0]) return { lat: parseFloat(data[0].lat), lng: parseFloat(data[0].lon) };
+    } catch (e) { console.error("Geocoding failed:", e); }
     return null;
 }
 
 async function loadMap() {
-    console.log("CleanDash: Loading Map...");
+    console.log("CleanDash: Loading Dashboard & Map...");
 
-    // 0. Set Loading State for KPIs
-    const dashboardKPIs = document.getElementById('dashboardKPIs');
-    if (dashboardKPIs) {
-        dashboardKPIs.innerHTML = '<p style="text-align:center; padding:1.5rem; color:#888;">Loading data...</p>';
-    }
-
+    // 1. Initialize Map
     if (!map) {
-        // Initialize Leaflet
         map = L.map('map').setView([39.8, -98.5], 4);
         L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
-        if (L.Control.Geocoder) {
-            L.Control.geocoder({ placeholder: "Search address..." }).addTo(map);
-        }
+        if (L.Control.Geocoder) L.Control.geocoder({ placeholder: "Search..." }).addTo(map);
     }
+
+    // Fix gray area on tab switch
+    setTimeout(() => { map.invalidateSize(); }, 200);
 
     // Clear existing markers
     map.eachLayer(l => l instanceof L.Marker && map.removeLayer(l));
 
-    if (!window.currentUser) {
-        if (dashboardKPIs) dashboardKPIs.innerHTML = '<p style="text-align:center; padding:1.5rem; color:red;">Please log in to view data.</p>';
-        return;
-    }
+    // Clear Account List
+    const listDiv = document.getElementById('dashAccountList');
+    if(listDiv) listDiv.innerHTML = '';
 
-    const boundsMarkers = [];
+    if (!window.currentUser) return;
+
     let totalRevenue = 0;
     let accountCount = 0;
     let activeEmployeeCount = 0;
+    const boundsMarkers = [];
 
-    // --- 1. Load User Home Pin (Red) ---
     try {
+        // --- A. LOAD HOME BASE ---
         const userDoc = await db.collection('users').doc(window.currentUser.uid).get();
-        const userData = userDoc.exists ? userDoc.data() : {};
-        const address = userData.address;
-
-        if (address && address !== 'Not set') {
-            let coords;
-            if (userData.lat && userData.lng) {
-                coords = { lat: userData.lat, lng: userData.lng };
-            } else {
-                coords = await getGeocode(address);
+        if (userDoc.exists) {
+            const u = userDoc.data();
+            if (u.address && u.address !== 'Not set') {
+                let coords = (u.lat && u.lng) ? {lat: u.lat, lng: u.lng} : await getGeocode(u.address);
                 if (coords) {
-                    await db.collection('users').doc(window.currentUser.uid).set(coords, { merge: true });
+                    const home = L.marker([coords.lat, coords.lng], { icon: HomeIcon }).addTo(map).bindPopup("<b>Home Base</b>");
+                    boundsMarkers.push(home);
                 }
             }
-
-            if (coords) {
-                const homeMarker = L.marker([coords.lat, coords.lng], { icon: HomeIcon });
-                homeMarker.addTo(map).bindPopup(`<b>Your Home Base</b><br>${address}`);
-                boundsMarkers.push(homeMarker);
-            }
         }
-    } catch (e) {
-        console.error("Error loading user profile or geocoding:", e);
-    }
 
-    // --- 2. Load Employees (Green) ---
-    try {
-        const empSnap = await db.collection('employees')
-            .where('owner', '==', window.currentUser.email)
-            .get();
-
+        // --- B. LOAD EMPLOYEES ---
+        const empSnap = await db.collection('employees').where('owner', '==', window.currentUser.email).get();
         empSnap.forEach(doc => {
             const e = doc.data();
-
-            // Count Active Employees
             if (e.status === 'Active') {
                 activeEmployeeCount++;
-            }
-
-            // Map Logic (Only if they have coords AND are active)
-            if (e.lat && e.lng && e.status === 'Active') {
-                const marker = L.marker([e.lat, e.lng], { icon: StaffIcon });
-                marker.addTo(map).bindPopup(`<b>👤 ${e.name}</b><br>${e.role}<br>${e.address}`);
-                boundsMarkers.push(marker);
+                if (e.lat && e.lng) {
+                    const m = L.marker([e.lat, e.lng], { icon: StaffIcon }).addTo(map).bindPopup(`<b>${e.name}</b><br>${e.role}`);
+                    boundsMarkers.push(m);
+                }
             }
         });
-    } catch (e) { console.error("Error loading employees on map", e); }
 
-    // --- 3. Load Account Pins (Blue) & Calculate KPIs ---
-    const q = window.currentUser.email === 'admin@cleandash.com'
-        ? db.collection('accounts')
-        : db.collection('accounts').where('owner', '==', window.currentUser.email);
+        // --- C. LOAD ACCOUNTS (MAP + SIDEBAR LIST) ---
+        const accSnap = await db.collection('accounts').where('owner', '==', window.currentUser.email).get();
+        const today = new Date();
 
-    q.get().then(snap => {
-        accountCount = snap.size;
+        if (accSnap.empty && listDiv) {
+            listDiv.innerHTML = '<div style="text-align:center; color:#9ca3af; padding:2rem;">No accounts found.</div>';
+        }
 
-        snap.forEach(doc => {
+        accSnap.forEach(doc => {
             const a = doc.data();
-            totalRevenue += (a.revenue || 0);
+            const start = a.startDate ? new Date(a.startDate) : null;
+            const end = a.endDate ? new Date(a.endDate) : null;
+            let isActive = true;
 
-            if (a.lat && a.lng) {
-                // UPDATED: Use the large AccountIcon instead of default
-                const marker = L.marker([a.lat, a.lng], { icon: AccountIcon });
-                marker.addTo(map)
-                    .bindPopup(`<b>🏢 ${a.name}</b><br>${a.address}<br><b style="color:#0d9488">$${(a.revenue || 0).toLocaleString()}/mo</b>`);
-                boundsMarkers.push(marker);
+            // Inactive if end date passed
+            if(end && end < today) isActive = false;
+
+            if(isActive) {
+                accountCount++;
+                totalRevenue += (a.revenue || 0);
+
+                // Add to Map
+                if (a.lat && a.lng) {
+                    const m = L.marker([a.lat, a.lng], { icon: AccountIcon }).addTo(map)
+                        .bindPopup(`<b>${a.name}</b><br>$${(a.revenue||0).toLocaleString()}/mo`);
+                    boundsMarkers.push(m);
+                }
+
+                // Add to Sidebar List
+                if (listDiv) {
+                    const card = document.createElement('div');
+                    card.className = 'dash-account-card';
+                    card.innerHTML = `
+                        <div class="dash-acc-name">${a.name}</div>
+                        <div class="dash-acc-addr">${a.address}</div>
+                        <div class="dash-acc-rev">$${(a.revenue||0).toLocaleString()}</div>
+                    `;
+                    listDiv.appendChild(card);
+                }
             }
         });
 
-        // --- RENDER KPIS ---
-        const kpiHtml = `
-            <div class="kpi-dashboard-item" style="border-left-color: #3b82f6;">
-                <p>Total Accounts</p>
-                <h3>${accountCount}</h3>
-            </div>
-            <div class="kpi-dashboard-item" style="border-left-color: #0d9488;">
-                <p>Total Monthly Revenue</p>
-                <h3>$${totalRevenue.toLocaleString()}</h3>
-            </div>
-            <div class="kpi-dashboard-item" style="border-left-color: #ef4444;">
-                <p>Active Team Members</p>
-                <h3>${activeEmployeeCount}</h3>
-            </div>
-        `;
-        if (dashboardKPIs) dashboardKPIs.innerHTML = kpiHtml;
+        // --- D. UPDATE KPI CARDS ---
+        // Since we reverted to the original KPI style, we need to generate that HTML here if it's missing,
+        // OR simply update the numbers if you kept the specific IDs.
+        // Based on the screenshot provided, the KPIs were hardcoded or dynamic.
+        // Let's update them using the standard IDs we used previously.
 
-        // --- 3. Auto-Zoom Logic ---
-        setTimeout(() => {
-            map.invalidateSize();
+        const kpiContainer = document.getElementById('dashboardKPIs');
+        if (kpiContainer) {
+            kpiContainer.innerHTML = `
+                <div class="kpi-dashboard-item" style="border-left-color: #3b82f6;">
+                    <p>Total Accounts</p>
+                    <h3>${accountCount}</h3>
+                </div>
+                <div class="kpi-dashboard-item" style="border-left-color: #0d9488;">
+                    <p>Total Monthly Revenue</p>
+                    <h3>$${totalRevenue.toLocaleString()}</h3>
+                </div>
+                <div class="kpi-dashboard-item" style="border-left-color: #ef4444;">
+                    <p>Active Team Members</p>
+                    <h3>${activeEmployeeCount}</h3>
+                </div>
+            `;
+        }
 
-            if (boundsMarkers.length > 0) {
-                const group = new L.featureGroup(boundsMarkers);
-                map.fitBounds(group.getBounds(), { padding: [50, 50], maxZoom: 11 });
-            } else {
-                map.setView([39.8, -98.5], 4);
-            }
-        }, 100); 
-    });
+        // --- E. AUTO ZOOM MAP ---
+        if (boundsMarkers.length > 0) {
+            const group = new L.featureGroup(boundsMarkers);
+            map.fitBounds(group.getBounds(), { padding: [50, 50], maxZoom: 14 });
+        } else {
+            map.setView([39.8, -98.5], 4);
+        }
+
+    } catch (e) {
+        console.error("Dashboard Load Error:", e);
+    }
 }
 
 window.loadMap = loadMap;
