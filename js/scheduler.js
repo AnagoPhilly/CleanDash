@@ -1,5 +1,11 @@
 // js/scheduler.js
 
+// --- ALERT SYSTEM CONFIGURATION ---
+// Track jobs we have already alerted on to prevent spamming
+let alertedJobs = new Set();
+// Free generic alert sound (ping)
+const alertSound = new Audio('https://assets.mixkit.co/sfx/preview/mixkit-software-interface-start-2574.mp3');
+
 let currentWeekStart = new Date();
 const day = currentWeekStart.getDay();
 const diff = currentWeekStart.getDate() - day + (day === 0 ? -6 : 1);
@@ -54,7 +60,6 @@ function renderCalendar(jobs, alertThreshold) {
     grid.innerHTML = '';
 
     const now = new Date();
-    const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 
     for (let i = 0; i < 7; i++) {
         const colDate = new Date(currentWeekStart);
@@ -71,7 +76,7 @@ function renderCalendar(jobs, alertThreshold) {
         dayJobs.forEach(job => {
             const timeStr = formatTime(job.start) + ' - ' + formatTime(job.end);
 
-            // --- VISUAL STATUS LOGIC ---
+            // --- VISUAL & ALERT LOGIC ---
             let statusBadge = '';
             let cardClass = 'shift-card';
 
@@ -86,15 +91,21 @@ function renderCalendar(jobs, alertThreshold) {
                 cardClass += ' active';
             }
             else {
-                // Scheduled (Grey) OR Late (Red)
+                // Check if Late (Scheduled Start Time + Threshold Minutes)
                 const lateTime = new Date(job.start.getTime() + alertThreshold * 60000);
 
                 if (now > lateTime) {
-                    // Late!
+                    // --- LATE DETECTED ---
                     statusBadge = '<div class="shift-status late">⚠️ LATE</div>';
                     cardClass += ' late';
+
+                    // TRIGGER ALERT (Only once per job ID per session)
+                    if (!alertedJobs.has(job.id)) {
+                        triggerLateAlert(job);
+                        alertedJobs.add(job.id);
+                    }
                 }
-                // Else: Default Grey
+                // Else: Default Grey (Scheduled)
             }
 
             const card = document.createElement('div');
@@ -120,14 +131,51 @@ function renderCalendar(jobs, alertThreshold) {
     }
 }
 
-// ... (Rest of the file remains the same: openShiftModal, editJob, saveShift, etc.) ...
-// Just ensure 'renderCalendar' call in other functions passes 'alertThreshold' if needed,
-// but 'loadScheduler' handles the main draw. For simplicity in saves, simply reloading scheduler is fine.
+// --- ALERT FUNCTIONS ---
 
-// --- COPY HELPER FUNCTIONS FROM PREVIOUS VERSION IF NEEDED ---
-// To be safe, use the full file from previous prompt but REPLACE loadScheduler and renderCalendar with above.
+function triggerLateAlert(job) {
+    console.log(`ALARM: ${job.employeeName} is late for ${job.accountName}`);
 
-// Full Utils below for completeness
+    // 1. Play Sound
+    alertSound.play().catch(e => console.warn("Audio play blocked until user interaction:", e));
+
+    // 2. Desktop Notification
+    if (Notification.permission === "granted") {
+        new Notification("MISSED CHECK-IN!", {
+            body: `${job.employeeName} has not checked into ${job.accountName}.`,
+            icon: 'https://cdn-icons-png.flaticon.com/512/564/564619.png', // Generic alert icon
+            requireInteraction: true // Keeps notification on screen until clicked
+        });
+    }
+
+    // 3. Send Email Alert (New Feature)
+    sendEmailAlert(job);
+}
+
+function sendEmailAlert(job) {
+    // Prevent sending if EmailJS isn't loaded
+    if (typeof emailjs === 'undefined') return console.error("EmailJS not loaded in index.html");
+
+    const templateParams = {
+        employee: job.employeeName,
+        location: job.accountName,
+        time: job.start.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}),
+        // You can add more params here that match your EmailJS template variables
+    };
+
+    // SERVICE ID AND TEMPLATE ID INSERTED HERE
+    emailjs.send('service_k7z8j0n', 'template_abc2jjm', templateParams)
+        .then(function(response) {
+            console.log('SUCCESS!', response.status, response.text);
+            window.showToast(`Email Alert Sent: ${job.employeeName} is late.`);
+        }, function(error) {
+            console.log('FAILED...', error);
+            window.showToast("Failed to send email alert.");
+        });
+}
+
+// --- MODAL FUNCTIONS ---
+
 window.openShiftModal = async function(dateObj) {
     document.getElementById('shiftModal').style.display = 'flex';
     document.getElementById('shiftModalTitle').textContent = "Assign Shift";
@@ -278,5 +326,10 @@ window.changeWeek = function(offset) {
     currentWeekStart.setDate(currentWeekStart.getDate() + (offset * 7));
     loadScheduler();
 };
+
+// Request Notification Permission on Load
+if (Notification.permission !== "granted" && Notification.permission !== "denied") {
+    Notification.requestPermission();
+}
 
 window.loadScheduler = loadScheduler;
