@@ -120,8 +120,15 @@
                         </div>
                         <button onclick="showAddAccount()" class="btn btn-primary">+ Add Account</button>
                     </div>
+
+                    <h3 style="color:#0d9488; border-bottom:2px solid #f0fdfa; padding-bottom:10px; margin-bottom:15px;">Active Accounts</h3>
                     <div id="accountsList">
                         <p style="color:#888; text-align:center;">Loading accounts...</p>
+                    </div>
+
+                    <h3 style="color:#6b7280; border-bottom:2px solid #f3f4f6; padding-bottom:10px; margin-top:40px; margin-bottom:15px;">Inactive / Canceled</h3>
+                    <div id="inactiveAccountsList">
+                        <p style="color:#9ca3af; text-align:center; font-size:0.9rem;">No inactive accounts.</p>
                     </div>
                 </div>
             </div>
@@ -137,13 +144,26 @@
                         </div>
                         <button onclick="showAddEmployee()" class="btn btn-primary">+ Add Member</button>
                     </div>
-                    <div id="employeeList"></div>
+                    <h3 style="color:#0d9488; border-bottom:2px solid #f0fdfa; padding-bottom:10px; margin-bottom:15px;">Active Team</h3>
+                    <div id="employeeListActive">
+                        <p style="color:#888; text-align:center;">Loading active team...</p>
+                    </div>
+
+                    <h3 style="color:#d97706; border-bottom:2px solid #fffbeb; padding-bottom:10px; margin-top:40px; margin-bottom:15px;">Waiting List / Applicants</h3>
+                    <div id="employeeListWaiting">
+                        <p style="color:#9ca3af; text-align:center; font-size:0.9rem;">No applicants on waiting list.</p>
+                    </div>
+
+                    <h3 style="color:#6b7280; border-bottom:2px solid #f3f4f6; padding-bottom:10px; margin-top:40px; margin-bottom:15px;">Inactive / Past Employees</h3>
+                    <div id="employeeListInactive">
+                        <p style="color:#9ca3af; text-align:center; font-size:0.9rem;">No inactive records.</p>
+                    </div>
                 </div>
             </div>
         </div>
 
         <div id="scheduler" class="page">
-            <div class="page-container" style="max-width: 100%;">
+            <div class="page-container">
                 <div class="content-card">
                     <div class="card-header">
                         <div>
@@ -616,7 +636,8 @@
         </div>
         <div class="modal-buttons">
             <button onclick="saveEditedAccount(event)">Save Changes</button>
-            <button onclick="hideEditAccount()" class="cancel">Cancel</button>
+            <button onclick="openCancelModal(document.getElementById('editAccountId').value)" class="btn btn-danger">Cancel Account</button>
+            <button onclick="hideEditAccount()" class="cancel">Close</button>
         </div>
     </div>
 </div>
@@ -639,6 +660,7 @@
                     <option value="Floor Tech">Floor Tech</option>
                     <option value="Day Porter">Day Porter</option>
                     <option value="Lead/Supervisor">Lead/Supervisor</option>
+                    <option value="Applicant">Applicant</option>
                 </select>
             </div>
             <div class="input-wrapper">
@@ -673,6 +695,7 @@
             <label for="empStatus">Status</label>
             <select id="empStatus">
                 <option value="Active">Active</option>
+                <option value="Waiting">Waiting List</option>
                 <option value="Inactive">Inactive (Keeps History)</option>
             </select>
         </div>
@@ -752,16 +775,27 @@
 
         <div id="manualTimeSection" style="background:#f9fafb; padding:15px; border-radius:8px; border:1px dashed #d1d5db; margin-top:20px; margin-bottom:20px; display:none;">
             <h4 style="margin-top:0; margin-bottom:10px; font-size:0.9rem; color:#b45309;">⚠️ Manual Time Override</h4>
-            <div style="display:grid; grid-template-columns: 1fr 1fr; gap:10px;">
+
+            <div class="input-wrapper" style="margin-bottom: 10px;">
+                <label for="actDate">Date Worked</label>
+                <input type="date" id="actDate" />
+            </div>
+
+            <div class="split-inputs-container">
                 <div class="input-wrapper">
-                    <label for="actualStart">Actual In</label>
-                    <input type="datetime-local" id="actualStart" />
+                    <label for="actStartTime">Actual In</label>
+                    <select id="actStartTime">
+                        <option value="">-- Select --</option>
+                    </select>
                 </div>
                 <div class="input-wrapper">
-                    <label for="actualEnd">Actual Out</label>
-                    <input type="datetime-local" id="actualEnd" />
+                    <label for="actEndTime">Actual Out</label>
+                    <select id="actEndTime">
+                        <option value="">-- Select --</option>
+                    </select>
                 </div>
             </div>
+
             <div class="input-wrapper" style="margin-top:10px;">
                 <label for="shiftStatus">Status</label>
                 <select id="shiftStatus">
@@ -801,6 +835,67 @@
         </div>
         <div class="modal-buttons" style="margin-top: 1.5rem;">
             <button onclick="closeSpecsModal()" class="cancel">Close</button>
+        </div>
+    </div>
+</div>
+
+<div id="cancelAccountModal" class="modal">
+    <div class="modal-content" style="max-width: 450px;">
+        <h2>Cancel Account</h2>
+        <input type="hidden" id="cancelAccountId" />
+        <p style="color:#666; margin-bottom:20px;">Please provide details for cancellation. This will move the account to the Inactive list.</p>
+
+        <div class="input-wrapper" style="margin-bottom:15px;">
+            <label style="font-weight:700;">Reason for Cancellation <span style="color:red">*</span></label>
+            <select id="cancelReason" onchange="toggleOtherReason(this)">
+                <option value="">-- Select Reason --</option>
+                <option value="Performance">Performance Issue</option>
+                <option value="InHouse">Taken In-House</option>
+                <option value="Moved">Client Relocated/Moved</option>
+                <option value="Transfer">Transfer to other Franchise</option>
+                <option value="Price">Price / Budget</option>
+                <option value="Other">Other</option>
+            </select>
+        </div>
+
+        <div class="input-wrapper" id="otherReasonDiv" style="display:none; margin-bottom:15px;">
+            <label>Specify Other Reason</label>
+            <input type="text" id="cancelReasonOther" placeholder="Details..." />
+        </div>
+
+        <div class="input-wrapper" style="margin-bottom:20px;">
+            <label style="font-weight:700;">End Date <span style="color:red">*</span></label>
+            <input type="date" id="cancelEndDate" />
+        </div>
+
+        <div class="modal-buttons">
+            <button onclick="confirmCancellation()" class="btn btn-danger">Confirm Cancellation</button>
+            <button onclick="document.getElementById('cancelAccountModal').style.display='none'" class="cancel">Back</button>
+        </div>
+    </div>
+</div>
+
+<div id="inactiveReasonModal" class="modal">
+    <div class="modal-content" style="max-width: 450px;">
+        <h2 id="inactiveReasonTitle"></h2>
+        <input type="hidden" id="inactiveAccountId" />
+        <input type="hidden" id="actionType" />
+
+        <label style="font-weight: 700; display: block; margin-bottom: 10px;">Reason for Inactivation:</label>
+
+        <div id="reasonRadioButtons" class="radio-group" style="display:flex; flex-direction:column; gap:8px; margin-bottom:20px;">
+            <label><input type="radio" name="inactiveReason" value="Performance" required> Client Performance Issue</label>
+            <label><input type="radio" name="inactiveReason" value="InHouse"> Moved Cleaning In-House</label>
+            <label><input type="radio" name="inactiveReason" value="Moved"> Client Relocated/Moved</label>
+            <label><input type="radio" name="inactiveReason" value="Transfer"> Requested Transfer to Another Franchise</label>
+            <label><input type="radio" name="inactiveReason" value="Other" onclick="document.getElementById('otherReasonInput').style.display = 'block'"> Other (Specify)</label>
+        </div>
+
+        <input type="text" id="otherReasonInput" placeholder="Specify other reason" style="display: none; margin-bottom: 20px;" />
+
+        <div class="modal-buttons">
+            <button onclick="confirmInactiveAction()" class="btn btn-primary" id="btnConfirmInactive">Confirm Inactivation</button>
+            <button onclick="closeInactiveReasonModal()" class="cancel">Cancel</button>
         </div>
     </div>
 </div>

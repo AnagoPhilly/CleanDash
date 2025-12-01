@@ -50,7 +50,6 @@ async function loadScheduler() {
             if(data.alarmCode) accountAlarms[doc.id] = data.alarmCode;
         });
 
-        // LOAD & CACHE SETTINGS (Including SMS Email)
         schedulerSettings = userDoc.exists ? userDoc.data() : {};
 
         const alertThreshold = schedulerSettings.alertThreshold || 15;
@@ -369,10 +368,8 @@ function triggerLateAlert(job) {
 }
 
 function sendEmailAlert(job) {
-    // Check for library
     if (typeof emailjs === 'undefined') return console.error("EmailJS not loaded in index.html");
 
-    // Determine Recipient: Use SMS if set, otherwise Email
     const recipient = (schedulerSettings && schedulerSettings.smsEmail)
         ? schedulerSettings.smsEmail
         : job.owner;
@@ -383,10 +380,9 @@ function sendEmailAlert(job) {
         employee: job.employeeName,
         location: job.accountName,
         time: job.start.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}),
-        to_email: recipient // This variable connects to your EmailJS template
+        to_email: recipient
     };
 
-    // --- UPDATED IDS ---
     const SERVICE_ID = 'service_k7z8j0n';
     const TEMPLATE_ID = 'template_najzv28';
 
@@ -429,6 +425,9 @@ async function populateDropdowns() {
     const startSelect = document.getElementById('shiftStartTime');
     const endSelect = document.getElementById('shiftEndTime');
 
+    const actStartSelect = document.getElementById('actStartTime');
+    const actEndSelect = document.getElementById('actEndTime');
+
     if (!accSelect || !empSelect || !startSelect || !endSelect) return;
 
     // Populate Time Selects
@@ -443,20 +442,30 @@ async function populateDropdowns() {
                 times.push({ val: `${h}:${min}`, text: `${displayH}:${min} ${ampm}` });
             }
         }
-        times.forEach(t => {
-            startSelect.add(new Option(t.text, t.val));
-            endSelect.add(new Option(t.text, t.val));
-        });
+
+        const fill = (sel) => {
+            if(!sel) return;
+            sel.innerHTML = '<option value="">-- Select --</option>';
+            times.forEach(t => sel.add(new Option(t.text, t.val)));
+        };
+
+        fill(startSelect);
+        fill(endSelect);
+        fill(actStartSelect);
+        fill(actEndSelect);
 
         // Auto-set End Time +1hr logic
-        startSelect.addEventListener('change', function() {
-             const val = this.value;
+        const autoInc = function(source, target) {
+             const val = source.value;
              if(!val) return;
              let [h, m] = val.split(':').map(Number);
              h = (h + 1) % 24;
              const nextVal = `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}`;
-             if(endSelect) endSelect.value = nextVal;
-        });
+             if(target) target.value = nextVal;
+        };
+
+        startSelect.addEventListener('change', () => autoInc(startSelect, endSelect));
+        if(actStartSelect) actStartSelect.addEventListener('change', () => autoInc(actStartSelect, actEndSelect));
     }
 
     // Populate Accounts/Employees
@@ -480,11 +489,15 @@ window.openShiftModal = async function(dateObj) {
     document.getElementById('btnDeleteShift').style.display = 'none';
     document.getElementById('manualTimeSection').style.display = 'none';
 
-    // Reset recurrence UI
     document.getElementById('shiftRepeat').checked = false;
     document.getElementById('recurrenceOptions').style.display = 'none';
     document.querySelectorAll('.day-btn-circle').forEach(b => b.classList.remove('selected'));
     document.getElementById('shiftRepeatEnd').value = "";
+
+    // Clear manual section
+    document.getElementById('actDate').value = '';
+    document.getElementById('actStartTime').value = '';
+    document.getElementById('actEndTime').value = '';
 
     await populateDropdowns();
 
@@ -500,9 +513,13 @@ window.editJob = async function(job) {
     if(!job.start) {
         const doc = await db.collection('jobs').doc(job.id).get();
         const data = doc.data();
-        job = { id: doc.id, ...data, start: data.startTime.toDate(), end: data.endTime.toDate() };
-        job.actStart = data.actualStartTime ? data.actualStartTime.toDate() : null;
-        job.actEnd = data.actualEndTime ? data.actualEndTime.toDate() : null;
+        job = {
+            id: doc.id, ...data,
+            start: data.startTime.toDate(),
+            end: data.endTime.toDate(),
+            actStart: data.actualStartTime ? data.actualStartTime.toDate() : null,
+            actEnd: data.actualEndTime ? data.actualEndTime.toDate() : null
+        };
     }
 
     document.getElementById('shiftModal').style.display = 'flex';
@@ -520,20 +537,31 @@ window.editJob = async function(job) {
     document.getElementById('shiftEmployee').value = job.employeeId;
     document.getElementById('shiftStatus').value = job.status || 'Scheduled';
 
-    const sDate = job.start.toISOString().split('T')[0];
-    const sH = String(job.start.getHours()).padStart(2,'0');
-    const sM = Math.round(job.start.getMinutes() / 15) * 15;
-    const sMin = (sM===60 ? 0 : sM).toString().padStart(2,'0');
-    document.getElementById('shiftStartDate').value = sDate;
-    document.getElementById('shiftStartTime').value = `${sH}:${sMin}`;
+    const getHM = (d) => {
+        const h = String(d.getHours()).padStart(2,'0');
+        const m = String(Math.round(d.getMinutes()/15)*15).padStart(2,'0');
+        return `${h}:${m === '60' ? '00' : m}`;
+    };
+    const getYMD = (d) => d.toISOString().split('T')[0];
 
-    const eH = String(job.end.getHours()).padStart(2,'0');
-    const eM = Math.round(job.end.getMinutes() / 15) * 15;
-    const eMin = (eM===60 ? 0 : eM).toString().padStart(2,'0');
-    document.getElementById('shiftEndTime').value = `${eH}:${eMin}`;
+    document.getElementById('shiftStartDate').value = getYMD(job.start);
+    document.getElementById('shiftStartTime').value = getHM(job.start);
+    document.getElementById('shiftEndTime').value = getHM(job.end);
 
-    document.getElementById('actualStart').value = job.actStart ? toIsoString(job.actStart) : '';
-    document.getElementById('actualEnd').value = job.actEnd ? toIsoString(job.actEnd) : '';
+    // SET MANUAL OVERRIDES
+    if(job.actStart) {
+        document.getElementById('actDate').value = getYMD(job.actStart);
+        document.getElementById('actStartTime').value = getHM(job.actStart);
+    } else {
+        document.getElementById('actDate').value = '';
+        document.getElementById('actStartTime').value = '';
+    }
+
+    if(job.actEnd) {
+        document.getElementById('actEndTime').value = getHM(job.actEnd);
+    } else {
+        document.getElementById('actEndTime').value = '';
+    }
 };
 
 window.saveShift = async function() {
@@ -579,10 +607,23 @@ window.saveShift = async function() {
                 owner: window.currentUser.email
             };
 
-            const actS = document.getElementById('actualStart').value;
-            const actE = document.getElementById('actualEnd').value;
-            if(actS) data.actualStartTime = firebase.firestore.Timestamp.fromDate(new Date(actS));
-            if(actE) data.actualEndTime = firebase.firestore.Timestamp.fromDate(new Date(actE));
+            // PROCESS MANUAL TIME
+            const actSDate = document.getElementById('actDate').value;
+            const actSTime = document.getElementById('actStartTime').value;
+            const actETime = document.getElementById('actEndTime').value;
+
+            if(actSDate && actSTime) {
+                const manualStart = new Date(`${actSDate}T${actSTime}:00`);
+                data.actualStartTime = firebase.firestore.Timestamp.fromDate(manualStart);
+
+                if(actETime) {
+                    let manualEnd = new Date(`${actSDate}T${actETime}:00`);
+                    if (manualEnd <= manualStart) {
+                        manualEnd.setDate(manualEnd.getDate() + 1); // Overnight check for manual
+                    }
+                    data.actualEndTime = firebase.firestore.Timestamp.fromDate(manualEnd);
+                }
+            }
 
             if (id) {
                 await db.collection('jobs').doc(id).update(data);
