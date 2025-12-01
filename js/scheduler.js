@@ -5,6 +5,10 @@ let currentView = 'week';
 let currentDate = new Date();
 let alertedJobs = new Set();
 const alertSound = new Audio('https://assets.mixkit.co/sfx/preview/mixkit-software-interface-start-2574.mp3');
+const HOURS_TO_RENDER = 30;
+
+// GLOBAL SETTINGS CACHE
+let schedulerSettings = {};
 
 function normalizeDate(date, view) {
     const d = new Date(date);
@@ -34,24 +38,24 @@ async function loadScheduler() {
     if (!window.currentUser) return;
 
     try {
-        // Parallel Fetch: User Settings, Jobs, and Accounts (for Alarm Codes)
         const [userDoc, jobs, accountsSnap] = await Promise.all([
             db.collection('users').doc(window.currentUser.uid).get(),
             fetchJobs(),
             db.collection('accounts').where('owner', '==', window.currentUser.email).get()
         ]);
 
-        // Create Alarm Map (AccountId -> AlarmCode)
         const accountAlarms = {};
         accountsSnap.forEach(doc => {
             const data = doc.data();
             if(data.alarmCode) accountAlarms[doc.id] = data.alarmCode;
         });
 
-        const settings = userDoc.exists ? userDoc.data() : {};
-        const alertThreshold = settings.alertThreshold || 15;
-        const emailDelayMinutes = settings.emailDelayMinutes || 60;
-        const emailAlertsEnabled = (settings.emailAlertsEnabled === undefined) ? true : settings.emailAlertsEnabled;
+        // LOAD & CACHE SETTINGS (Including SMS Email)
+        schedulerSettings = userDoc.exists ? userDoc.data() : {};
+
+        const alertThreshold = schedulerSettings.alertThreshold || 15;
+        const emailDelayMinutes = schedulerSettings.emailDelayMinutes || 60;
+        const emailAlertsEnabled = (schedulerSettings.emailAlertsEnabled === undefined) ? true : schedulerSettings.emailAlertsEnabled;
 
         updateHeaderUI();
 
@@ -72,7 +76,6 @@ async function loadScheduler() {
             renderMonthView(jobs, alertThreshold, emailDelayMinutes, emailAlertsEnabled, accountAlarms);
         }
 
-        // AUTO-SCROLL LOGIC (Scroll to 5 PM)
         if (currentView !== 'month') {
              setTimeout(() => {
                  if(container) container.scrollTop = 1020;
@@ -187,12 +190,11 @@ function renderMonthView(jobs, alertThreshold, emailDelay, emailEnabled, account
     grid.innerHTML = html;
 }
 
-// EXTENDED TIME COLUMN (0 - 30 Hours)
 function generateTimeColumn() {
     let html = '<div class="calendar-time-col">';
     html += '<div class="cal-header" style="background:#f9fafb; border-bottom:1px solid #e5e7eb;"></div>';
 
-    for (let h = 0; h < 30; h++) {
+    for (let h = 0; h < HOURS_TO_RENDER; h++) {
         let displayH = h % 24;
         let label = '';
 
@@ -209,7 +211,6 @@ function generateTimeColumn() {
     return html;
 }
 
-// --- SMART PACKING ALGORITHM (EQUAL COLUMNS + HOVER EXPAND) ---
 function renderDayColumn(dateObj, jobs, alertThreshold, emailDelay, emailEnabled, isSingleDay = false, accountAlarms = {}) {
     const dateStr = dateObj.toISOString().split('T')[0];
     const displayDate = dateObj.toLocaleDateString('en-US', { weekday: 'short', month: 'numeric', day: 'numeric' });
@@ -217,7 +218,6 @@ function renderDayColumn(dateObj, jobs, alertThreshold, emailDelay, emailEnabled
     const dayJobs = jobs.filter(j => isSameDay(j.start, dateObj));
     dayJobs.sort((a, b) => a.start - b.start);
 
-    // Calculate Columns
     const columns = [];
     dayJobs.forEach(job => {
         let placed = false;
@@ -369,9 +369,30 @@ function triggerLateAlert(job) {
 }
 
 function sendEmailAlert(job) {
-    // ⚠️ EMAILS SUPPRESSED FOR DEV
-    console.log("🚫 Email suppressed:", job.employeeName);
-    return;
+    if (typeof emailjs === 'undefined') return console.error("EmailJS not loaded in index.html");
+
+    // Use SMS Email if available in settings, otherwise default to Owner's main email
+    const recipient = (schedulerSettings && schedulerSettings.smsEmail)
+        ? schedulerSettings.smsEmail
+        : job.owner;
+
+    console.log(`Sending alert to: ${recipient}`);
+
+    const templateParams = {
+        employee: job.employeeName,
+        location: job.accountName,
+        time: job.start.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}),
+        to_email: recipient
+    };
+
+    emailjs.send('service_k7z8j0n', 'template_abc2jjm', templateParams)
+        .then(function(response) {
+            console.log('SUCCESS!', response.status, response.text);
+            window.showToast(`Alert sent to ${recipient}`);
+        }, function(error) {
+            console.log('FAILED...', error);
+            window.showToast("Failed to send alert.");
+        });
 }
 
 window.saveScheduleSettings = async function() {
@@ -395,21 +416,17 @@ window.toggleRecurrenceDay = function(btn) {
     btn.classList.toggle('selected');
 };
 
-// --- MODAL & CRUD FUNCTIONS (ROBUST) ---
+// --- MODAL & CRUD FUNCTIONS ---
 
 async function populateDropdowns() {
-    // 1. Get Elements safely
     const accSelect = document.getElementById('shiftAccount');
     const empSelect = document.getElementById('shiftEmployee');
     const startSelect = document.getElementById('shiftStartTime');
     const endSelect = document.getElementById('shiftEndTime');
 
-    if (!accSelect || !empSelect || !startSelect || !endSelect) {
-        console.error("Critical Error: Dropdown elements not found in DOM.");
-        return;
-    }
+    if (!accSelect || !empSelect || !startSelect || !endSelect) return;
 
-    // 2. Populate Time Selects (Only if empty)
+    // Populate Time Selects
     if (startSelect.options.length === 0) {
         const times = [];
         for(let i=0; i<24; i++) {
@@ -426,40 +443,28 @@ async function populateDropdowns() {
             endSelect.add(new Option(t.text, t.val));
         });
 
-        // --- NEW: Auto-set End Time to +1 Hour when Start Time changes ---
+        // Auto-set End Time +1hr logic
         startSelect.addEventListener('change', function() {
-             const val = this.value; // "HH:MM"
+             const val = this.value;
              if(!val) return;
              let [h, m] = val.split(':').map(Number);
-
-             // Add 1 Hour
              h = (h + 1) % 24;
-
              const nextVal = `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}`;
-
-             // Set End Time
              if(endSelect) endSelect.value = nextVal;
         });
     }
 
-    // 3. Populate Account and Employee Selects (Only if not already populated)
+    // Populate Accounts/Employees
     if (accSelect.options.length <= 1) {
         accSelect.innerHTML = '<option value="">Select Account...</option>';
         empSelect.innerHTML = '<option value="">Select Employee...</option>';
-
-        if (!window.currentUser || !window.currentUser.email) return;
-
+        if (!window.currentUser) return;
         try {
             const accSnap = await db.collection('accounts').where('owner', '==', window.currentUser.email).orderBy('name').get();
-            if(!accSnap.empty) {
-                accSnap.forEach(doc => accSelect.appendChild(new Option(doc.data().name, doc.id)));
-            }
-
+            accSnap.forEach(doc => accSelect.appendChild(new Option(doc.data().name, doc.id)));
             const empSnap = await db.collection('employees').where('owner', '==', window.currentUser.email).orderBy('name').get();
-            if(!empSnap.empty) {
-                empSnap.forEach(doc => empSelect.appendChild(new Option(doc.data().name, doc.id)));
-            }
-        } catch (e) { console.error("Dropdown DB load error:", e); }
+            empSnap.forEach(doc => empSelect.appendChild(new Option(doc.data().name, doc.id)));
+        } catch (e) { console.error("Dropdown load error:", e); }
     }
 }
 
@@ -478,38 +483,21 @@ window.openShiftModal = async function(dateObj) {
 
     await populateDropdowns();
 
-    // Safe DOM checks before setting values
-    const sDateInput = document.getElementById('shiftStartDate');
-    const eDateInput = document.getElementById('shiftEndDate');
-    const sTimeInput = document.getElementById('shiftStartTime');
-    const eTimeInput = document.getElementById('shiftEndTime');
+    const dateStr = dateObj.toISOString().split('T')[0];
+    document.getElementById('shiftStartDate').value = dateStr;
 
-    if(sDateInput && eDateInput && sTimeInput && eTimeInput) {
-        const dateStr = dateObj.toISOString().split('T')[0];
-        sDateInput.value = dateStr;
-        eDateInput.value = dateStr;
-
-        // DEFAULT TIMES: 5 PM - 6 PM
-        sTimeInput.value = "17:00";
-        eTimeInput.value = "18:00";
-    }
+    // DEFAULT TIMES: 5 PM - 6 PM
+    document.getElementById('shiftStartTime').value = "17:00";
+    document.getElementById('shiftEndTime').value = "18:00";
 };
 
 window.editJob = async function(job) {
-    // Fetch if partial
     if(!job.start) {
         const doc = await db.collection('jobs').doc(job.id).get();
         const data = doc.data();
-        job = {
-            id: doc.id,
-            accountId: data.accountId,
-            employeeId: data.employeeId,
-            status: data.status,
-            start: data.startTime.toDate(),
-            end: data.endTime.toDate(),
-            actStart: data.actualStartTime ? data.actualStartTime.toDate() : null,
-            actEnd: data.actualEndTime ? data.actualEndTime.toDate() : null
-        };
+        job = { id: doc.id, ...data, start: data.startTime.toDate(), end: data.endTime.toDate() };
+        job.actStart = data.actualStartTime ? data.actualStartTime.toDate() : null;
+        job.actEnd = data.actualEndTime ? data.actualEndTime.toDate() : null;
     }
 
     document.getElementById('shiftModal').style.display = 'flex';
@@ -523,49 +511,38 @@ window.editJob = async function(job) {
 
     await populateDropdowns();
 
-    try {
-        document.getElementById('shiftAccount').value = job.accountId;
-        document.getElementById('shiftEmployee').value = job.employeeId;
-        document.getElementById('shiftStatus').value = job.status || 'Scheduled';
+    document.getElementById('shiftAccount').value = job.accountId;
+    document.getElementById('shiftEmployee').value = job.employeeId;
+    document.getElementById('shiftStatus').value = job.status || 'Scheduled';
 
-        // Parse Start
-        const sDate = job.start.toISOString().split('T')[0];
-        const sH = String(job.start.getHours()).padStart(2,'0');
-        const sM = Math.round(job.start.getMinutes() / 15) * 15;
-        const sMin = (sM===60 ? 0 : sM).toString().padStart(2,'0');
-        document.getElementById('shiftStartDate').value = sDate;
-        document.getElementById('shiftStartTime').value = `${sH}:${sMin}`;
+    const sDate = job.start.toISOString().split('T')[0];
+    const sH = String(job.start.getHours()).padStart(2,'0');
+    const sM = Math.round(job.start.getMinutes() / 15) * 15;
+    const sMin = (sM===60 ? 0 : sM).toString().padStart(2,'0');
+    document.getElementById('shiftStartDate').value = sDate;
+    document.getElementById('shiftStartTime').value = `${sH}:${sMin}`;
 
-        // Parse End
-        const eDate = job.end.toISOString().split('T')[0];
-        const eH = String(job.end.getHours()).padStart(2,'0');
-        const eM = Math.round(job.end.getMinutes() / 15) * 15;
-        const eMin = (eM===60 ? 0 : eM).toString().padStart(2,'0');
-        document.getElementById('shiftEndDate').value = eDate;
-        document.getElementById('shiftEndTime').value = `${eH}:${eMin}`;
+    const eH = String(job.end.getHours()).padStart(2,'0');
+    const eM = Math.round(job.end.getMinutes() / 15) * 15;
+    const eMin = (eM===60 ? 0 : eM).toString().padStart(2,'0');
+    document.getElementById('shiftEndTime').value = `${eH}:${eMin}`;
 
-        // Manual Overrides
-        document.getElementById('actualStart').value = job.actStart ? toIsoString(job.actStart) : '';
-        document.getElementById('actualEnd').value = job.actEnd ? toIsoString(job.actEnd) : '';
-    } catch(e) {
-        console.error("Error setting modal values:", e);
-    }
+    document.getElementById('actualStart').value = job.actStart ? toIsoString(job.actStart) : '';
+    document.getElementById('actualEnd').value = job.actEnd ? toIsoString(job.actEnd) : '';
 };
 
 window.saveShift = async function() {
     const id = document.getElementById('shiftId').value;
     const accSelect = document.getElementById('shiftAccount');
     const empSelect = document.getElementById('shiftEmployee');
-
     const sDate = document.getElementById('shiftStartDate').value;
     const sTime = document.getElementById('shiftStartTime').value;
-    const eDate = document.getElementById('shiftEndDate').value;
     const eTime = document.getElementById('shiftEndTime').value;
     const status = document.getElementById('shiftStatus').value;
 
     const isRepeat = document.getElementById('shiftRepeat').checked;
 
-    if (!accSelect.value || !empSelect.value || !sDate || !sTime || !eDate || !eTime) {
+    if (!accSelect.value || !empSelect.value || !sDate || !sTime || !eTime) {
         return alert("Required fields missing.");
     }
 
@@ -576,10 +553,14 @@ window.saveShift = async function() {
     try {
         const batch = db.batch();
         const baseStart = new Date(`${sDate}T${sTime}:00`);
-        const baseEnd = new Date(`${eDate}T${eTime}:00`);
+        let baseEnd = new Date(`${sDate}T${eTime}:00`);
+
+        // AUTO-CORRECT OVERNIGHT SHIFT
+        if (baseEnd <= baseStart) {
+            baseEnd.setDate(baseEnd.getDate() + 1);
+        }
 
         const durationMs = baseEnd - baseStart;
-        if (durationMs <= 0) throw new Error("End time must be after start time.");
 
         if (!isRepeat || id) {
             const data = {

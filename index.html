@@ -166,10 +166,12 @@
 
                     <div id="alertControls" class="alert-info-block" style="margin-bottom: 1.5rem; padding: 1rem; border-radius: 8px; display: none; align-items: center; justify-content: space-between;">
                         <span class="alert-info-label">Email Alert Settings:</span>
+
                         <div style="display: flex; gap: 15px; align-items:center;">
                             <label class="toggle-label alert-info-text" for="editEmailEnabled" style="flex-shrink:0; cursor: pointer;">
                                 <input type="checkbox" id="editEmailEnabled" style="width:auto; margin-right:8px;" onchange="saveScheduleSettings()"> Enable Alerts
                             </label>
+
                             <div style="flex:1; display: flex; align-items: center; gap: 5px;">
                                 <span class="alert-info-text" style="font-size: 0.9rem; font-weight: 600;">Delay:</span>
                                 <input type="number" id="editEmailDelay" placeholder="60" value="60"
@@ -208,12 +210,16 @@
                         <div style="display:flex; gap:10px; align-items:center;">
                             <label for="payStart" class="vh">Start Date</label>
                             <input type="date" id="payStart" class="form-control" style="padding:8px; border-radius:6px; border:1px solid #ddd;" onchange="updatePayrollDates()">
+
                             <span style="color:#666;">to</span>
+
                             <label for="payEnd" class="vh">End Date</label>
                             <input type="date" id="payEnd" class="form-control" style="padding:8px; border-radius:6px; border:1px solid #ddd;" onchange="updatePayrollDates()">
+
                             <button class="btn btn-secondary" onclick="exportPayrollCSV()">Export CSV</button>
                         </div>
                     </div>
+
                     <div id="payrollTableContainer"></div>
                 </div>
             </div>
@@ -239,7 +245,9 @@
                             <button class="btn btn-primary" style="width:100%; margin-bottom:1rem; background:#3b82f6;" onclick="generateMetricsGraphFromDB()">
                                 📊 Load Graph from My Accounts
                             </button>
+
                             <div style="text-align:center; margin-bottom:1rem; font-weight:bold; color:#ccc;">— OR —</div>
+
                             <span class="metrics-label">Paste Manual Data:</span>
                             <p style="font-size:0.8rem; color:#666; margin-bottom:0.5rem;">Copy the table directly from your Excel sheet or Database (Date, Amount, etc.) and paste below.</p>
                             <textarea id="metricsInput" class="metrics-textarea" placeholder="Paste rows here (e.g. 11/20/25  $7,492.63)..."></textarea>
@@ -343,34 +351,58 @@
                         </div>
                     </div>
                 </div>
+
                 <div id="calcResults" class="calc-cards-grid">
                     <div class="result-card green">
                         <h3>Cash Payment</h3>
                         <div class="card-amount" id="val_cash_total">$0.00</div>
                         <div class="card-subtext">Total Due Today</div>
                         <div class="card-details">
-                            <div class="detail-row"><span id="lbl_cash_cfee">C-fee Amount</span><span id="val_cash_cfee_detail">$0.00</span></div>
-                            <div class="detail-row" style="color:#10b981;"><span>Cash Discount (15%)</span><span id="val_cash_disc">($0.00)</span></div>
+                            <div class="detail-row">
+                                <span id="lbl_cash_cfee">C-fee Amount</span>
+                                <span id="val_cash_cfee_detail">$0.00</span>
+                            </div>
+                            <div class="detail-row" style="color:#10b981;">
+                                <span>Cash Discount (15%)</span>
+                                <span id="val_cash_disc">($0.00)</span>
+                            </div>
                         </div>
                     </div>
+
                     <div class="result-card blue">
                         <h3>120 Days No Interest</h3>
                         <div class="card-amount" id="val_120_pay">$0.00</div>
                         <div class="card-subtext">Monthly Payment (4 months)</div>
                         <div class="card-details">
-                            <div class="detail-row"><span id="lbl_120_cfee">C-fee Amount</span><span id="val_120_cfee">$0.00</span></div>
-                            <div class="detail-row total"><span>Total C-fee Due</span><span id="val_120_total_cfee">$0.00</span></div>
+                            <div class="detail-row">
+                                <span id="lbl_120_cfee">C-fee Amount</span>
+                                <span id="val_120_cfee">$0.00</span>
+                            </div>
+                            <div class="detail-row total">
+                                <span>Total C-fee Due</span>
+                                <span id="val_120_total_cfee">$0.00</span>
+                            </div>
                         </div>
                     </div>
+
                     <div class="result-card purple">
                         <div class="card-badge">Most Common</div>
                         <h3>Financed (12 Months)</h3>
                         <div class="card-amount" id="val_fin_pay">$0.00</div>
                         <div class="card-subtext">Monthly Payment (12 months)</div>
                         <div class="card-details">
-                            <div class="detail-row"><span id="lbl_fin_cfee">C-fee Amount</span><span id="val_fin_cfee">$0.00</span></div>
-                            <div class="detail-row"><span>12% Interest</span><span id="val_fin_int">$0.00</span></div>
-                            <div class="detail-row total"><span>Financed Total</span><span id="val_fin_total">$0.00</span></div>
+                            <div class="detail-row">
+                                <span id="lbl_fin_cfee">C-fee Amount</span>
+                                <span id="val_fin_cfee">$0.00</span>
+                            </div>
+                            <div class="detail-row">
+                                <span>12% Interest</span>
+                                <span id="val_fin_int">$0.00</span>
+                            </div>
+                            <div class="detail-row total">
+                                <span>Financed Total</span>
+                                <span id="val_fin_total">$0.00</span>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -457,6 +489,7 @@
                         <p>Update your personal information and default settings.</p>
                     </div>
                     <div id="profileView" class="profile-view"><div><p>Full Name</p><h3 id="viewName">Loading...</h3></div><div><p>Email</p><h3 id="viewEmail">Loading...</h3></div><div style="grid-column:span 2;"><p>Home Address</p><h3 id="viewAddress">Not set</h3></div><div><p>CFI Factor</p><h3 id="viewCfi">0.00</h3></div><div><p>Cost of Doing Business (%)</p><h3 id="viewCodb">25%</h3></div></div>
+
                     <div id="profileEdit" style="display:none;">
                         <form class="profile-form" style="display:grid; grid-template-columns:1fr 1fr; gap:2rem;">
                             <div class="input-wrapper">
@@ -466,6 +499,23 @@
                             <div class="input-wrapper">
                                 <label for="editEmail">Email</label>
                                 <input type="email" id="editEmail" disabled style="background:#f9fafb;" />
+                            </div>
+
+                            <div class="input-wrapper" style="grid-column: span 2; background: #f0fdfa; padding: 15px; border-radius: 8px; border: 1px solid #ccfbf1;">
+                                <label for="editSmsEmail" style="color: #0f766e;">📱 Phone SMS Address (For Text Alerts)</label>
+                                <input type="text" id="editSmsEmail" placeholder="e.g. 5551234567@vtext.com" style="margin-bottom: 5px;" />
+
+                                <details style="font-size: 0.8rem; color: #555; cursor: pointer;">
+                                    <summary><strong>Click for Carrier Cheatsheet</strong></summary>
+                                    <div style="margin-top: 5px; padding-left: 10px; border-left: 2px solid #ddd;">
+                                        <p style="margin: 2px 0;"><strong>Verizon:</strong> number@vtext.com</p>
+                                        <p style="margin: 2px 0;"><strong>AT&T:</strong> number@txt.att.net</p>
+                                        <p style="margin: 2px 0;"><strong>T-Mobile:</strong> number@tmomail.net</p>
+                                        <p style="margin: 2px 0;"><strong>Sprint:</strong> number@messaging.sprintpcs.com</p>
+                                        <p style="margin: 2px 0;"><strong>Cricket:</strong> number@mms.cricketwireless.net</p>
+                                        <p style="margin: 2px 0;"><em>Example: 2155551234@vtext.com</em></p>
+                                    </div>
+                                </details>
                             </div>
                             <div class="input-wrapper" style="grid-column:span 2;">
                                 <label for="editAddress">Home Address</label>
@@ -479,6 +529,7 @@
                                 <label for="editCodb">CoDB (%)</label>
                                 <input type="number" step="0.1" id="editCodb" />
                             </div>
+
                             <div class="input-wrapper" style="grid-column:span 2;">
                                 <label for="editAlertThreshold">Late Alert Threshold (minutes)</label>
                                 <input type="number" id="editAlertThreshold" placeholder="15" />
@@ -491,6 +542,7 @@
                         </div>
                         <div id="saveSuccess" style="color:green; margin-top:1rem; display:none;">Saved!</div>
                     </div>
+
                     <div id="editBtnContainer" style="margin-top:2rem;"><button id="editProfileBtn" class="btn btn-secondary">Edit Profile</button></div>
                 </div>
             </div>
@@ -566,20 +618,71 @@
     <div class="modal-content">
         <h2 id="empModalTitle">Add Team Member</h2>
         <input type="hidden" id="empId" />
-        <div class="input-wrapper" style="margin-bottom:10px;"><label style="font-size:0.8rem; font-weight:700;" for="empName">Full Name</label><input type="text" id="empName" placeholder="e.g. John Doe" /></div>
-        <div style="display:grid; grid-template-columns: 1fr 1fr; gap:10px; margin-bottom:10px;">
-            <div class="input-wrapper"><label style="font-size:0.8rem; font-weight:700;" for="empRole">Role</label><select id="empRole" style="width:100%; padding:10px; border:1px solid #ddd; border-radius:6px;"><option value="General Cleaner">General Cleaner</option><option value="Floor Tech">Floor Tech</option><option value="Day Porter">Day Porter</option><option value="Lead/Supervisor">Lead/Supervisor</option></select></div>
-            <div class="input-wrapper"><label style="font-size:0.8rem; font-weight:700;" for="empWage">Hourly Wage ($)</label><input type="number" id="empWage" placeholder="15.00" step="0.25" /></div>
+
+        <div class="input-wrapper" style="margin-bottom:10px;">
+            <label style="font-size:0.8rem; font-weight:700;" for="empName">Full Name</label>
+            <input type="text" id="empName" placeholder="e.g. John Doe" />
         </div>
-        <div class="input-wrapper" style="margin-bottom:10px;"><label for="empAddress">Home Address</label><input type="text" id="empAddress" placeholder="123 Main St, City, State, Zip" /></div>
+
         <div style="display:grid; grid-template-columns: 1fr 1fr; gap:10px; margin-bottom:10px;">
-            <div class="input-wrapper"><label for="empEmail">Email (Login)</label><input type="email" id="empEmail" placeholder="email@example.com" /></div>
-            <div class="input-wrapper"><label for="empPhone">Phone</label><input type="text" id="empPhone" placeholder="(555) 123-4567" /></div>
+            <div class="input-wrapper">
+                <label style="font-size:0.8rem; font-weight:700;" for="empRole">Role</label>
+                <select id="empRole" style="width:100%; padding:10px; border:1px solid #ddd; border-radius:6px;">
+                    <option value="General Cleaner">General Cleaner</option>
+                    <option value="Floor Tech">Floor Tech</option>
+                    <option value="Day Porter">Day Porter</option>
+                    <option value="Lead/Supervisor">Lead/Supervisor</option>
+                </select>
+            </div>
+            <div class="input-wrapper">
+                <label style="font-size:0.8rem; font-weight:700;" for="empWage">Hourly Wage ($)</label>
+                <input type="number" id="empWage" placeholder="15.00" step="0.25" />
+            </div>
         </div>
-        <div class="input-wrapper" style="margin-bottom:10px;"><label for="empPassword">Set Initial Password</label><input type="text" id="empPassword" placeholder="e.g. Welcome2025!" /><small style="color:#6b7280; font-size:0.75rem;">Leave blank if just editing details. Minimum 6 chars.</small></div>
-        <div class="input-wrapper" style="margin-bottom:20px;"><label for="empStatus">Status</label><select id="empStatus"><option value="Active">Active</option><option value="Inactive">Inactive (Keeps History)</option></select></div>
-        <div id="resetPasswordContainer" style="margin-bottom:15px; display:none;"><button type="button" onclick="sendResetEmail()" class="btn btn-secondary">📧 Send Password Reset Email</button><small style="color:#666; display:block; margin-top:5px; text-align:center; font-size:0.75rem;">Useful if the employee forgets their login.</small></div>
-        <div class="modal-buttons"><button onclick="saveEmployee()" class="btn btn-primary">Save Member</button><button onclick="closeEmployeeModal()" class="cancel">Cancel</button></div>
+
+        <div class="input-wrapper" style="margin-bottom:10px;">
+            <label for="empAddress">Home Address</label>
+            <input type="text" id="empAddress" placeholder="123 Main St, City, State, Zip" />
+        </div>
+
+        <div style="display:grid; grid-template-columns: 1fr 1fr; gap:10px; margin-bottom:10px;">
+            <div class="input-wrapper">
+                <label for="empEmail">Email (Login)</label>
+                <input type="email" id="empEmail" placeholder="email@example.com" />
+            </div>
+            <div class="input-wrapper">
+                <label for="empPhone">Phone</label>
+                <input type="text" id="empPhone" placeholder="(555) 123-4567" />
+            </div>
+        </div>
+
+        <div class="input-wrapper" style="margin-bottom:10px;">
+            <label for="empPassword">Set Initial Password</label>
+            <input type="text" id="empPassword" placeholder="e.g. Welcome2025!" />
+            <small style="color:#6b7280; font-size:0.75rem;">Leave blank if just editing details. Minimum 6 chars.</small>
+        </div>
+
+        <div class="input-wrapper" style="margin-bottom:20px;">
+            <label for="empStatus">Status</label>
+            <select id="empStatus">
+                <option value="Active">Active</option>
+                <option value="Inactive">Inactive (Keeps History)</option>
+            </select>
+        </div>
+
+        <div id="resetPasswordContainer" style="margin-bottom:15px; display:none;">
+            <button type="button" onclick="sendResetEmail()" class="btn btn-secondary">
+                📧 Send Password Reset Email
+            </button>
+            <small style="color:#666; display:block; margin-top:5px; text-align:center; font-size:0.75rem;">
+                Useful if the employee forgets their login.
+            </small>
+        </div>
+
+        <div class="modal-buttons">
+            <button onclick="saveEmployee()" class="btn btn-primary">Save Member</button>
+            <button onclick="closeEmployeeModal()" class="cancel">Cancel</button>
+        </div>
     </div>
 </div>
 
