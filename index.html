@@ -489,7 +489,6 @@
                         <p>Update your personal information and default settings.</p>
                     </div>
                     <div id="profileView" class="profile-view"><div><p>Full Name</p><h3 id="viewName">Loading...</h3></div><div><p>Email</p><h3 id="viewEmail">Loading...</h3></div><div style="grid-column:span 2;"><p>Home Address</p><h3 id="viewAddress">Not set</h3></div><div><p>CFI Factor</p><h3 id="viewCfi">0.00</h3></div><div><p>Cost of Doing Business (%)</p><h3 id="viewCodb">25%</h3></div></div>
-
                     <div id="profileEdit" style="display:none;">
                         <form class="profile-form" style="display:grid; grid-template-columns:1fr 1fr; gap:2rem;">
                             <div class="input-wrapper">
@@ -502,20 +501,28 @@
                             </div>
 
                             <div class="input-wrapper" style="grid-column: span 2; background: #f0fdfa; padding: 15px; border-radius: 8px; border: 1px solid #ccfbf1;">
-                                <label for="editSmsEmail" style="color: #0f766e;">📱 Phone SMS Address (For Text Alerts)</label>
-                                <input type="text" id="editSmsEmail" placeholder="e.g. 5551234567@vtext.com" style="margin-bottom: 5px;" />
+                                <h4 style="margin-top: 0; margin-bottom: 10px; font-size: 0.95rem; color: #0f766e;">📱 Set Up Text Alerts (Free)</h4>
 
-                                <details style="font-size: 0.8rem; color: #555; cursor: pointer;">
-                                    <summary><strong>Click for Carrier Cheatsheet</strong></summary>
-                                    <div style="margin-top: 5px; padding-left: 10px; border-left: 2px solid #ddd;">
-                                        <p style="margin: 2px 0;"><strong>Verizon:</strong> number@vtext.com</p>
-                                        <p style="margin: 2px 0;"><strong>AT&T:</strong> number@txt.att.net</p>
-                                        <p style="margin: 2px 0;"><strong>T-Mobile:</strong> number@tmomail.net</p>
-                                        <p style="margin: 2px 0;"><strong>Sprint:</strong> number@messaging.sprintpcs.com</p>
-                                        <p style="margin: 2px 0;"><strong>Cricket:</strong> number@mms.cricketwireless.net</p>
-                                        <p style="margin: 2px 0;"><em>Example: 2155551234@vtext.com</em></p>
+                                <div class="split-inputs-container" style="gap: 10px; margin-bottom: 0;">
+                                    <div class="input-wrapper">
+                                        <label for="editPhoneNumber">Phone Number (10 Digits)</label>
+                                        <input type="text" id="editPhoneNumber" placeholder="e.g. 215-555-1234" oninput="this.value=this.value.replace(/[^0-9-]/g,''); generateSmsEmail();"/>
                                     </div>
-                                </details>
+                                    <div class="input-wrapper">
+                                        <label for="editCarrier">Select Carrier</label>
+                                        <select id="editCarrier" onchange="generateSmsEmail()">
+                                            <option value="">-- Select Carrier --</option>
+                                            <option value="vtext.com">Verizon / Xfinity</option>
+                                            <option value="txt.att.net">AT&T</option>
+                                            <option value="tmomail.net">T-Mobile</option>
+                                            <option value="messaging.sprintpcs.com">Sprint</option>
+                                            <option value="mms.cricketwireless.net">Cricket</option>
+                                        </select>
+                                    </div>
+                                </div>
+                                <small id="smsPreview" style="color: #1e40af; font-weight: 600; margin-top: 5px; display: block;">
+                                    Final SMS Address: Not Set
+                                </small>
                             </div>
                             <div class="input-wrapper" style="grid-column:span 2;">
                                 <label for="editAddress">Home Address</label>
