@@ -6,6 +6,8 @@
     <title>CleanDash</title>
 
     <link rel="stylesheet" href="style.css" />
+    <link rel="stylesheet" href="scheduler.css" />
+    <link rel="stylesheet" href="payroll.css" />
 
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
 
@@ -85,22 +87,23 @@
 
         <div id="dashboard" class="page active">
             <div class="page-container">
-                <div class="card-header" style="border-bottom:none; margin-bottom:0; padding-bottom:0;">
-                    <h2>Account Map</h2>
-                    <p>Geographic overview of all active service locations.</p>
-                </div>
+                <div class="content-card">
+                    <div class="card-header" style="border-bottom:none; margin-bottom:0; padding-bottom:0;">
+                        <h2>Account Map</h2>
+                        <p>Geographic overview of all active service locations.</p>
+                    </div>
 
-                <div id="dashboardKPIs" class="kpi-scorecard-dashboard">
-                    <p style="text-align:center; color:#888;">Loading KPIs...</p>
-                </div>
+                    <div id="dashboardKPIs" class="kpi-scorecard-dashboard">
+                        <p style="text-align:center; color:#888;">Loading KPIs...</p>
+                    </div>
 
-                <div class="dashboard-split-container">
-                    <div id="map" class="dashboard-map"></div>
-
-                    <div class="dashboard-list-panel">
-                        <h3 style="margin:0 0 1rem 0; font-size:1.1rem; color:#1f2937; border-bottom:1px solid #e5e7eb; padding-bottom:10px;">Active Accounts</h3>
-                        <div id="dashAccountList" class="dash-list-scroll">
-                            <div style="color:#9ca3af; text-align:center; padding:2rem;">Loading accounts...</div>
+                    <div class="dashboard-split-container">
+                        <div id="map" class="dashboard-map"></div>
+                        <div class="dashboard-list-panel">
+                            <h3 style="margin:0 0 1rem 0; font-size:1.1rem; color:#1f2937; border-bottom:1px solid #e5e7eb; padding-bottom:10px;">Active Accounts</h3>
+                            <div id="dashAccountList" class="dash-list-scroll">
+                                <div style="color:#9ca3af; text-align:center; padding:2rem;">Loading accounts...</div>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -147,11 +150,13 @@
                             <h2>Schedule</h2>
                             <p id="weekRangeDisplay">Loading dates...</p>
                         </div>
+
                         <div class="view-toggles">
                             <button class="btn-view-toggle" onclick="changeView('day')" data-view="day">Day</button>
                             <button class="btn-view-toggle active" onclick="changeView('week')" data-view="week">Week</button>
                             <button class="btn-view-toggle" onclick="changeView('month')" data-view="month">Month</button>
                         </div>
+
                         <div style="display:flex; gap:10px; align-items:center;">
                             <button onclick="openShiftModal(new Date())" class="btn btn-primary" style="flex-shrink: 0;">+ Add Shift</button>
                             <button class="btn btn-secondary" onclick="changePeriod(-1)">← Prev</button>
@@ -235,7 +240,7 @@
                                 📊 Load Graph from My Accounts
                             </button>
                             <div style="text-align:center; margin-bottom:1rem; font-weight:bold; color:#ccc;">— OR —</div>
-                            <label class="metrics-label" for="metricsInput">Paste Manual Data:</label>
+                            <span class="metrics-label">Paste Manual Data:</span>
                             <p style="font-size:0.8rem; color:#666; margin-bottom:0.5rem;">Copy the table directly from your Excel sheet or Database (Date, Amount, etc.) and paste below.</p>
                             <textarea id="metricsInput" class="metrics-textarea" placeholder="Paste rows here (e.g. 11/20/25  $7,492.63)..."></textarea>
                             <button class="btn btn-primary" style="width:100%; margin-top:1rem;" onclick="generateMetricsGraph()">Generate Graph</button>
@@ -582,20 +587,40 @@
     <div class="modal-content">
         <h2 id="shiftModalTitle">Assign Shift</h2>
         <input type="hidden" id="shiftId" />
-        <div class="input-wrapper" style="margin-bottom:15px;"><label for="shiftAccount">Account (Location)</label><select id="shiftAccount"></select></div>
-        <div class="input-wrapper" style="margin-bottom:15px;"><label for="shiftEmployee">Employee</label><select id="shiftEmployee"></select></div>
-        <div class="split-inputs-container">
-            <div class="input-wrapper"><label for="shiftStartDate">Start Date</label><input type="date" id="shiftStartDate" /></div>
-            <div class="input-wrapper"><label for="shiftStartTime">Start Time</label><select id="shiftStartTime"></select></div>
+
+        <div class="input-wrapper" style="margin-bottom:15px;">
+            <label for="shiftAccount">Account (Location)</label>
+            <select id="shiftAccount"></select>
         </div>
-        <div class="split-inputs-container">
-            <div class="input-wrapper"><label for="shiftEndDate">End Date</label><input type="date" id="shiftEndDate" /></div>
-            <div class="input-wrapper"><label for="shiftEndTime">End Time</label><select id="shiftEndTime"></select></div>
+
+        <div class="input-wrapper" style="margin-bottom:15px;">
+            <label for="shiftEmployee">Employee</label>
+            <select id="shiftEmployee"></select>
         </div>
+
+        <div class="input-wrapper" style="margin-bottom: 15px;">
+            <label for="shiftStartDate">Shift Date</label>
+            <input type="date" id="shiftStartDate" />
+        </div>
+
+        <div class="split-inputs-container">
+            <div class="input-wrapper">
+                <label for="shiftStartTime">Start Time</label>
+                <select id="shiftStartTime"></select>
+            </div>
+            <div class="input-wrapper">
+                <label for="shiftEndTime">End Time</label>
+                <select id="shiftEndTime"></select>
+            </div>
+        </div>
+
         <div class="input-wrapper" style="margin-top: 15px;">
             <input type="checkbox" id="shiftRepeat" class="hidden-checkbox" onchange="toggleRecurrenceOptions()">
-            <label for="shiftRepeat" class="btn-repeat-toggle">🔄 Click here to repeat schedule</label>
+            <label for="shiftRepeat" class="btn-repeat-toggle">
+                🔄 Click here to repeat schedule
+            </label>
         </div>
+
         <div id="recurrenceOptions" style="display:none; background:#f9fafb; padding:15px; border:1px solid #e5e7eb; border-radius:8px; margin-top:10px;">
             <div class="input-wrapper">
                 <label style="margin-bottom:8px; display:block;">Select Days:</label>
@@ -609,19 +634,34 @@
                     <button type="button" class="day-btn-circle" data-day="0" onclick="toggleRecurrenceDay(this)">S</button>
                 </div>
             </div>
-            <div class="input-wrapper" style="margin-top:10px;"><label for="shiftRepeatEnd">Repeat Until Date:</label><input type="date" id="shiftRepeatEnd" /></div>
+            <div class="input-wrapper" style="margin-top:10px;">
+                <label for="shiftRepeatEnd">Repeat Until Date:</label>
+                <input type="date" id="shiftRepeatEnd" />
+            </div>
         </div>
+
         <div id="manualTimeSection" style="background:#f9fafb; padding:15px; border-radius:8px; border:1px dashed #d1d5db; margin-top:20px; margin-bottom:20px; display:none;">
             <h4 style="margin-top:0; margin-bottom:10px; font-size:0.9rem; color:#b45309;">⚠️ Manual Time Override</h4>
             <div style="display:grid; grid-template-columns: 1fr 1fr; gap:10px;">
-                <div class="input-wrapper"><label for="actualStart">Actual In</label><input type="datetime-local" id="actualStart" /></div>
-                <div class="input-wrapper"><label for="actualEnd">Actual Out</label><input type="datetime-local" id="actualEnd" /></div>
+                <div class="input-wrapper">
+                    <label for="actualStart">Actual In</label>
+                    <input type="datetime-local" id="actualStart" />
+                </div>
+                <div class="input-wrapper">
+                    <label for="actualEnd">Actual Out</label>
+                    <input type="datetime-local" id="actualEnd" />
+                </div>
             </div>
             <div class="input-wrapper" style="margin-top:10px;">
                 <label for="shiftStatus">Status</label>
-                <select id="shiftStatus"><option value="Scheduled">Not Started</option><option value="Started">Started</option><option value="Completed">Completed</option></select>
+                <select id="shiftStatus">
+                    <option value="Scheduled">Not Started</option>
+                    <option value="Started">Started</option>
+                    <option value="Completed">Completed</option>
+                </select>
             </div>
         </div>
+
         <div class="modal-buttons" style="margin-top: 1.5rem;">
             <button onclick="saveShift()" class="btn btn-primary">Save Shift</button>
             <button onclick="deleteJobFromModal()" id="btnDeleteShift" class="btn btn-danger" style="display:none;">Delete</button>

@@ -28,8 +28,11 @@ function loadProfile() {
     setValue('editCfi', data.cfi || '');
     setValue('editCodb', data.codb || '');
 
-    // Alert Threshold (Default to 15 if missing)
+    // NEW: Populate Alert Threshold (Default to 15 if missing)
     setValue('editAlertThreshold', data.alertThreshold || 15);
+
+    // NOTE: Email settings are now loaded/saved via js/scheduler.js and the Scheduler view,
+    // so we no longer interact with them here.
 
   }).catch(error => {
       console.error("CleanDash: Error loading profile:", error);
@@ -84,8 +87,7 @@ window.saveProfile = function() {
     cfi: parseFloat(document.getElementById('editCfi').value) || 0,
     codb: parseFloat(document.getElementById('editCodb').value) || 25,
     // Save Alert Threshold
-    alertThreshold: parseInt(document.getElementById('editAlertThreshold').value) || 15,
-    // --- END NEW ---
+    alertThreshold: parseInt(document.getElementById('editAlertThreshold').value) || 15
   };
 
   db.collection('users').doc(uid).set(data, { merge: true }).then(() => {
