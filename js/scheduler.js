@@ -369,9 +369,10 @@ function triggerLateAlert(job) {
 }
 
 function sendEmailAlert(job) {
+    // Check for library
     if (typeof emailjs === 'undefined') return console.error("EmailJS not loaded in index.html");
 
-    // Use SMS Email if available in settings, otherwise default to Owner's main email
+    // Determine Recipient: Use SMS if set, otherwise Email
     const recipient = (schedulerSettings && schedulerSettings.smsEmail)
         ? schedulerSettings.smsEmail
         : job.owner;
@@ -382,10 +383,14 @@ function sendEmailAlert(job) {
         employee: job.employeeName,
         location: job.accountName,
         time: job.start.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}),
-        to_email: recipient
+        to_email: recipient // This variable connects to your EmailJS template
     };
 
-    emailjs.send('service_k7z8j0n', 'template_abc2jjm', templateParams)
+    // --- UPDATED IDS ---
+    const SERVICE_ID = 'service_k7z8j0n';
+    const TEMPLATE_ID = 'template_najzv28';
+
+    emailjs.send(SERVICE_ID, TEMPLATE_ID, templateParams)
         .then(function(response) {
             console.log('SUCCESS!', response.status, response.text);
             window.showToast(`Alert sent to ${recipient}`);
