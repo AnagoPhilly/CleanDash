@@ -367,6 +367,7 @@ window.saveEditedAccount = async (event) => {
             alarmCode: alarm, contactName: cName, contactPhone: cPhone, contactEmail: cEmail
         });
 
+
         window.showToast('Updated!');
         window.hideEditAccount();
         loadAccountsList();
