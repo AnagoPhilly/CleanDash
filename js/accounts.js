@@ -46,9 +46,10 @@ function loadAccountsList() {
 
           const contactDisplay = contactParts.length > 0 ? `<div style="font-size:0.8rem; color:#6b7280; margin-top:2px;">${contactParts.join(' &nbsp;•&nbsp; ')}</div>` : '';
           const alarmDisplay = a.alarmCode ? `<div style="font-size:0.75rem; color:#ef4444; font-weight:bold; margin-top:2px;">🚨 ${a.alarmCode}</div>` : '';
+          const pidDisplay = a.pid ? `<span style="font-size:0.7rem; background:#e0f2fe; color:#0369a1; padding:1px 4px; border-radius:4px; margin-left:5px;">${a.pid}</span>` : '';
 
           activeRows += `<tr>
-            <td><div style="font-weight:600; color:#111827;">${a.name}</div>${contactDisplay}</td>
+            <td><div style="font-weight:600; color:#111827;">${a.name} ${pidDisplay}</div>${contactDisplay}</td>
             <td><div style="color:#4b5563; font-size:0.9rem;">${a.address}</div>${alarmDisplay}</td>
             <td class="col-revenue">$${(a.revenue || 0).toLocaleString()}</td>
             <td style="text-align:center;">
@@ -277,9 +278,22 @@ window.reactivateAccount = async function(id) {
 
 // --- CRUD Operations ---
 window.showAddAccount = function() { document.getElementById('addAccountModal').style.display = 'flex'; }
-window.hideAddAccount = function() { document.getElementById('addAccountModal').style.display = 'none'; document.querySelectorAll('#addAccountModal input').forEach(i => i.value = ''); }
+window.hideAddAccount = function() {
+    document.getElementById('addAccountModal').style.display = 'none';
+    document.querySelectorAll('#addAccountModal input').forEach(i => i.value = '');
 
+    // Reset the Auto Fill button if needed
+    const btn = document.getElementById('btnPidAutoFill');
+    if(btn) {
+        btn.innerHTML = '✨ PID Auto Fill';
+        btn.disabled = false;
+    }
+}
+
+// UPDATE: Modified to save PID if available
 window.saveNewAccount = async () => {
+    // 1. Grab inputs
+    const pid = document.getElementById('accountPID') ? document.getElementById('accountPID').value.trim() : '';
     const name = document.getElementById('accountName').value.trim();
     const address = document.getElementById('accountAddress').value.trim();
     const revenue = Number(document.getElementById('accountRevenue').value);
@@ -290,14 +304,18 @@ window.saveNewAccount = async () => {
     const cPhone = document.getElementById('contactPhone').value.trim();
     const cEmail = document.getElementById('contactEmail').value.trim();
 
+    // 2. Validation
     if (!name || !address || !startDate) return alert('Name, Address, and Start Date required');
 
     try {
+        // 3. Geocoding
         const url = `https://us1.locationiq.com/v1/search.php?key=${window.LOCATIONIQ_KEY}&q=${encodeURIComponent(address)}&format=json&limit=1`;
         const res = await fetch(url);
         const data = await res.json();
 
+        // 4. Construct Data Object
         const accountData = {
+            pid: pid, // Save the PID here
             name, address, revenue, startDate, endDate: endDate || null, alarmCode: alarm,
             contactName: cName, contactPhone: cPhone, contactEmail: cEmail,
             owner: window.currentUser.email,
@@ -309,7 +327,9 @@ window.saveNewAccount = async () => {
             accountData.lng = parseFloat(data[0].lon);
         }
 
+        // 5. Save to Firestore
         await db.collection('accounts').add(accountData);
+
         window.showToast('Account added!');
         hideAddAccount();
         loadAccountsList();
@@ -378,3 +398,68 @@ window.saveEditedAccount = async (event) => {
 };
 
 window.loadAccountsList = loadAccountsList;
+
+
+// --- NEW PID AUTO FILL LOGIC ---
+
+document.addEventListener('DOMContentLoaded', () => {
+    // Attach event listener dynamically
+    const btn = document.getElementById('btnPidAutoFill');
+    if(btn) {
+        btn.addEventListener('click', runPidAutoFill);
+    }
+});
+
+async function runPidAutoFill() {
+    const pidInput = document.getElementById('accountPID');
+    const pid = pidInput.value.trim();
+
+    if (!pid) return alert("Please enter an Account ID (PID) first.");
+
+    const btn = document.getElementById('btnPidAutoFill');
+    const originalText = btn.innerHTML;
+    btn.textContent = "Searching...";
+    btn.disabled = true;
+
+    try {
+        // Query the master list we just uploaded
+        const doc = await db.collection('master_client_list').doc(pid).get();
+
+        if (!doc.exists) {
+            alert(`PID "${pid}" not found in the master database.`);
+            // Optional: reset button to error state briefly
+            btn.innerHTML = "❌ Not Found";
+            setTimeout(() => {
+                btn.innerHTML = originalText;
+                btn.disabled = false;
+            }, 2000);
+            return;
+        }
+
+        const data = doc.data();
+
+        // Populate fields
+        if(document.getElementById('accountName')) document.getElementById('accountName').value = data.name || '';
+        if(document.getElementById('accountAddress')) document.getElementById('accountAddress').value = data.address || '';
+        if(document.getElementById('accountRevenue')) document.getElementById('accountRevenue').value = data.revenue || '';
+        if(document.getElementById('accountStartDate')) document.getElementById('accountStartDate').value = data.startDate || '';
+        if(document.getElementById('contactName')) document.getElementById('contactName').value = data.contactName || '';
+        if(document.getElementById('contactPhone')) document.getElementById('contactPhone').value = data.contactPhone || '';
+        if(document.getElementById('contactEmail')) document.getElementById('contactEmail').value = data.contactEmail || '';
+
+        // Show success
+        window.showToast(`Found: ${data.name}`);
+        btn.innerHTML = "✅ Data Loaded!";
+
+        setTimeout(() => {
+            btn.innerHTML = originalText;
+            btn.disabled = false;
+        }, 2000);
+
+    } catch (error) {
+        console.error("Auto Fill Error:", error);
+        alert("Error connecting to database.");
+        btn.innerHTML = originalText;
+        btn.disabled = false;
+    }
+}

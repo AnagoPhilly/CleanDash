@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>CleanDash Data Import (Admin)</title>
+    <style>
+        body { font-family: 'Segoe UI', sans-serif; padding: 0; margin: 0; background: #f3f4f6; display: flex; justify-content: center; align-items: center; min-height: 100vh; }
+        .container { background: white; padding: 40px; border-radius: 12px; box-shadow: 0 10px 25px rgba(0,0,0,0.1); width: 100%; max-width: 600px; }
+        h1 { color: #0d9488; margin-top: 0; font-size: 1.5rem; border-bottom: 2px solid #f0fdfa; padding-bottom: 15px; margin-bottom: 20px; }
+        p { color: #4b5563; line-height: 1.5; font-size: 0.95rem; }
+
+        .upload-box { border: 2px dashed #cbd5e1; border-radius: 8px; padding: 30px; text-align: center; background: #f8fafc; transition: all 0.2s; margin: 20px 0; }
+
+        /* Updated Button Styles for Disabled State */
+        button { background: #0d9488; color: white; border: none; padding: 12px 24px; font-size: 1rem; border-radius: 6px; cursor: pointer; font-weight: bold; width: 100%; transition: background 0.2s; }
+        button:hover { background: #0f766e; }
+        button.disabled-state { background: #9ca3af !important; cursor: not-allowed !important; opacity: 0.7; }
+
+        .log-window { background: #1f2937; color: #10b981; padding: 15px; height: 200px; overflow-y: auto; border-radius: 8px; margin-top: 20px; font-family: monospace; font-size: 0.85rem; display: none; }
+        .log-entry { margin-bottom: 4px; border-bottom: 1px solid #374151; padding-bottom: 2px; }
+
+        .badge { display: inline-block; background: #e0f2fe; color: #0369a1; padding: 4px 8px; border-radius: 4px; font-size: 0.8rem; font-weight: bold; margin-bottom: 10px; }
+
+        #authWarning { display:none; background:#fee2e2; color:#991b1b; padding:15px; border-radius:8px; text-align:center; font-weight:bold; margin-bottom:20px; border:1px solid #f87171; }
+    </style>
+
+    <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+</head>
+<body>
+
+<div class="container">
+    <h1>Admin Data Importer</h1>
+    <div id="authWarning">
+        🔒 Access Denied. You must be logged in as nate@anagophilly.com to use this tool.
+    </div>
+
+    <div id="appContent" style="opacity:0.5; pointer-events:none;"> <div class="badge">Safe Mode: Upsert Only (No Deletes)</div>
+        <p>Use this tool to update your <b>Master Client List</b>. <br>New clients will be added. Existing clients will be updated.</p>
+
+        <div class="upload-box">
+            <input type="file" id="uploadCsv" accept=".csv" />
+        </div>
+
+        <button id="btnUpload" class="disabled-state" disabled onclick="processFile()">🚀 Start Import</button>
+
+        <div id="status" style="margin-top:15px; text-align:center; font-weight:bold; color: #4b5563; min-height: 20px;"></div>
+        <div id="log" class="log-window"></div>
+    </div>
+</div>
+
+<script src="js/auth.js"></script>
+
+<script>
+    // --- SECURITY CHECK ---
+    const ALLOWED_ADMIN_EMAIL = 'nate@anagophilly.com';
+
+    firebase.auth().onAuthStateChanged(user => {
+        const warningBox = document.getElementById('authWarning');
+        const appContent = document.getElementById('appContent');
+        const btn = document.getElementById('btnUpload');
+
+        if (user && user.email && user.email.toLowerCase() === ALLOWED_ADMIN_EMAIL.toLowerCase()) {
+            // User is authorized
+            warningBox.style.display = 'none';
+            appContent.style.opacity = '1';
+            appContent.style.pointerEvents = 'auto';
+            btn.disabled = false;
+            btn.classList.remove('disabled-state');
+            console.log("Admin authorized.");
+        } else {
+            // User is NOT authorized
+            warningBox.style.display = 'block';
+            appContent.style.opacity = '0.5';
+            appContent.style.pointerEvents = 'none';
+            btn.disabled = true;
+            btn.classList.add('disabled-state');
+            if(user) console.warn(`Blocked unauthorized access attempt by: ${user.email}`);
+        }
+    });
+    // ---------------------------
+
+    function log(msg) {
+        const l = document.getElementById('log');
+        l.style.display = 'block';
+        l.innerHTML += `<div class="log-entry">> ${msg}</div>`;
+        l.scrollTop = l.scrollHeight;
+    }
+
+    function processFile() {
+        // Double check security just in case
+        const user = firebase.auth().currentUser;
+        if (!user || user.email.toLowerCase() !== ALLOWED_ADMIN_EMAIL.toLowerCase()) {
+            alert("Security Alert: Unauthorized access attempt prevented.");
+            window.location.reload();
+            return;
+        }
+
+        const fileInput = document.getElementById('uploadCsv');
+        const file = fileInput.files[0];
+        if(!file) return alert("Please select a CSV file first.");
+
+        const btn = document.getElementById('btnUpload');
+        btn.disabled = true;
+        btn.classList.add('disabled-state');
+        btn.innerText = "Processing...";
+        document.getElementById('status').innerText = "Reading file...";
+
+        Papa.parse(file, {
+            header: true,
+            skipEmptyLines: true,
+            complete: function(results) {
+                if (results.data.length === 0) return alert("File appears empty.");
+                uploadToFirebase(results.data);
+            },
+            error: function(err) {
+                alert("CSV Error: " + err.message);
+                btn.disabled = false;
+                btn.classList.remove('disabled-state');
+                btn.innerText = "🚀 Start Import";
+            }
+        });
+    }
+
+    async function uploadToFirebase(data) {
+        document.getElementById('status').innerText = `Analyzing ${data.length} rows...`;
+        const batchSize = 400;
+        let batch = db.batch();
+        let count = 0;
+        let totalProcessed = 0;
+        let batchCount = 0;
+
+        for (const row of data) {
+            const pid = row['Client ID'];
+            if (!pid) continue;
+            let cleanRev = row['Recur Amt'] ? parseFloat(row['Recur Amt'].replace(/[$,]/g, '')) : 0;
+            let cleanDate = '';
+            if(row['Start Date']) {
+                const parts = row['Start Date'].split('-');
+                if(parts.length === 3) cleanDate = `20${parts[2]}-${parts[0]}-${parts[1]}`;
+            }
+
+            const docRef = db.collection('master_client_list').doc(String(pid).trim());
+            const updateData = {
+                pid: pid,
+                name: row['Service Location Name'] || '',
+                address: `${row['Site Address'] || ''}, ${row['Site City'] || ''}, ${row['Site State'] || ''} ${row['Site Zip'] || ''}`.trim(),
+                revenue: cleanRev,
+                startDate: cleanDate,
+                contactName: row['Contact Name'] || '',
+                contactPhone: row['Contact Phone'] || '',
+                contactEmail: row['Contact Email'] || '',
+                lastImportedAt: firebase.firestore.FieldValue.serverTimestamp()
+            };
+
+            batch.set(docRef, updateData, { merge: true });
+            count++; totalProcessed++;
+
+            if (count >= batchSize) {
+                await batch.commit();
+                batchCount++;
+                log(`Batch ${batchCount}: Synced ${count} records...`);
+                batch = db.batch(); count = 0;
+            }
+        }
+
+        if (count > 0) { await batch.commit(); log(`Final Batch: Synced ${count} records.`); }
+
+        document.getElementById('status').innerText = `✅ Success! Synced ${totalProcessed} clients.`;
+        document.getElementById('btnUpload').innerText = "Import Complete";
+        document.getElementById('btnUpload').style.background = "#10b981";
+        document.getElementById('btnUpload').classList.remove('disabled-state');
+        alert(`Complete! ${totalProcessed} clients have been updated in the Master List.`);
+    }
+</script>
+</body>
+</html>
