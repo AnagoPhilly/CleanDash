@@ -1,19 +1,32 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>CleanDash Diagnostic Importer</title>
+    <title>CleanDash Admin Importer</title>
     <style>
-        body { font-family: 'Segoe UI', sans-serif; padding: 20px; background: #f3f4f6; }
-        .container { background: white; padding: 30px; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); max-width: 800px; margin: 0 auto; }
-        h1 { color: #0d9488; margin-top: 0; }
+        body { font-family: 'Segoe UI', sans-serif; padding: 0; margin: 0; background: #f3f4f6; display: flex; justify-content: center; align-items: center; min-height: 100vh; }
+        .container { background: white; padding: 40px; border-radius: 12px; box-shadow: 0 10px 25px rgba(0,0,0,0.1); width: 100%; max-width: 700px; }
+        h1 { color: #0d9488; margin-top: 0; font-size: 1.5rem; border-bottom: 2px solid #f0fdfa; padding-bottom: 15px; margin-bottom: 20px; }
 
-        .upload-box { border: 2px dashed #cbd5e1; padding: 20px; text-align: center; background: #f8fafc; margin: 20px 0; }
-        button { background: #0d9488; color: white; border: none; padding: 12px 20px; font-size: 1rem; border-radius: 6px; cursor: pointer; font-weight: bold; }
-        button:disabled { background: #9ca3af; cursor: not-allowed; }
+        .upload-box { border: 2px dashed #cbd5e1; border-radius: 8px; padding: 30px; background: #f8fafc; margin: 20px 0; }
 
-        #log { background: #1f2937; color: #10b981; padding: 15px; height: 350px; overflow-y: auto; border-radius: 8px; margin-top: 20px; font-family: monospace; font-size: 0.9rem; white-space: pre-wrap; }
-        .error { color: #ef4444; font-weight: bold; background: rgba(239, 68, 68, 0.1); padding: 2px; }
-        .warn { color: #f59e0b; }
+        select, .checkbox-wrapper { width: 100%; margin-bottom: 15px; font-size: 1rem; }
+        select { padding: 12px; border-radius: 6px; border: 1px solid #d1d5db; background: white; }
+
+        .checkbox-wrapper { display: flex; align-items: center; gap: 10px; background: #e0f2fe; padding: 10px; border-radius: 6px; border: 1px solid #bae6fd; color: #0369a1; font-weight: 600; box-sizing: border-box;}
+
+        button { background: #0d9488; color: white; border: none; padding: 12px 24px; font-size: 1rem; border-radius: 6px; cursor: pointer; font-weight: bold; width: 100%; transition: background 0.2s; }
+        button:hover { background: #0f766e; }
+        button.disabled-state { background: #9ca3af !important; cursor: not-allowed !important; opacity: 0.7; }
+
+        .log-window { background: #1f2937; color: #10b981; padding: 15px; height: 250px; overflow-y: auto; border-radius: 8px; margin-top: 20px; font-family: monospace; font-size: 0.85rem; display: none; }
+        .log-entry { margin-bottom: 4px; border-bottom: 1px solid #374151; padding-bottom: 2px; }
+        .log-warn { color: #f59e0b; }
+
+        .danger-zone { margin-top: 30px; padding-top: 20px; border-top: 2px solid #fee2e2; }
+        .btn-danger { background: #fee2e2; color: #b91c1c; border: 1px solid #fca5a5; }
+        .btn-danger:hover { background: #ef4444; color: white; }
+
+        #authWarning { display:none; background:#fee2e2; color:#991b1b; padding:15px; border-radius:8px; text-align:center; font-weight:bold; margin-bottom:20px; border:1px solid #f87171; }
     </style>
 
     <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
@@ -24,158 +37,129 @@
 <body>
 
 <div class="container">
-    <h1>🔧 Diagnostic Importer</h1>
-    <p>This tool prints detailed logs to find out why the upload is freezing.</p>
+    <h1>Admin Data Importer</h1>
+    <div id="authWarning">🔒 Access Denied. Must be logged in as Admin.</div>
 
-    <div class="upload-box">
-        <input type="file" id="uploadCsv" accept=".csv" />
+    <div id="appContent" style="opacity:0.5; pointer-events:none;">
+        <label style="font-weight:bold; color:#374151;">Select Import Type:</label>
+        <select id="importType">
+            <option value="history">2. Account History/Book (Book.csv)</option>
+            <option value="master">1. Master Client List (clients.csv)</option>
+        </select>
+
+        <div class="checkbox-wrapper">
+            <input type="checkbox" id="geoEnabled" checked>
+            <label for="geoEnabled">Auto-Fix Map Coordinates (Adds ~0.6s per row)</label>
+        </div>
+
+        <div class="upload-box">
+            <input type="file" id="uploadCsv" accept=".csv" />
+        </div>
+
+        <button id="btnUpload" class="disabled-state" disabled onclick="processFile()">🚀 Start Import</button>
+
+        <div id="status" style="margin-top:15px; text-align:center; font-weight:bold; color: #4b5563; min-height: 20px;"></div>
+        <div id="log" class="log-window"></div>
+
+        <div class="danger-zone">
+            <h4 style="margin: 0 0 10px 0; color: #b91c1c;">Danger Zone</h4>
+            <button onclick="wipeMasterList()" class="btn-danger">🗑️ Delete All Master Data</button>
+        </div>
     </div>
-
-    <button id="btnUpload" onclick="processFile()">Start Diagnostic Upload</button>
-    <div id="log">Waiting for file...</div>
 </div>
 
 <script src="js/auth.js"></script>
 
 <script>
-    function log(msg, type = 'info') {
+    const ALLOWED_ADMIN_EMAIL = 'nate@anagophilly.com';
+    const LOCATIONIQ_KEY = "pk.c92dcfda3c6ea1c6da25f0c36c34c99e";
+
+    firebase.auth().onAuthStateChanged(user => {
+        const warningBox = document.getElementById('authWarning');
+        const appContent = document.getElementById('appContent');
+        const btn = document.getElementById('btnUpload');
+
+        if (user && user.email && user.email.toLowerCase() === ALLOWED_ADMIN_EMAIL.toLowerCase()) {
+            warningBox.style.display = 'none';
+            appContent.style.opacity = '1';
+            appContent.style.pointerEvents = 'auto';
+            btn.disabled = false;
+            btn.classList.remove('disabled-state');
+        } else {
+            warningBox.style.display = 'block';
+            appContent.style.opacity = '0.5';
+            appContent.style.pointerEvents = 'none';
+        }
+    });
+
+    function log(msg, type='info') {
         const l = document.getElementById('log');
-        const entry = document.createElement('div');
-        entry.textContent = `> ${msg}`;
-        if(type === 'error') entry.className = 'error';
-        if(type === 'warn') entry.className = 'warn';
-        l.appendChild(entry);
+        l.style.display = 'block';
+        let cls = 'log-entry';
+        if(type==='warn') cls += ' log-warn';
+        l.innerHTML += `<div class="${cls}">> ${msg}</div>`;
         l.scrollTop = l.scrollHeight;
-        console.log(msg);
+    }
+
+    const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+
+    async function getCoordinates(address) {
+        if (!address || address.length < 5) return null;
+        try {
+            const url = `https://us1.locationiq.com/v1/search.php?key=${LOCATIONIQ_KEY}&q=${encodeURIComponent(address)}&format=json&limit=1`;
+            const res = await fetch(url);
+            if (!res.ok) return null;
+            const data = await res.json();
+            if (data && data[0]) {
+                return { lat: parseFloat(data[0].lat), lng: parseFloat(data[0].lon) };
+            }
+        } catch (e) { console.log("Geo error", e); }
+        return null;
     }
 
     function processFile() {
         const file = document.getElementById('uploadCsv').files[0];
-        if(!file) return alert("Select a file first.");
+        const mode = document.getElementById('importType').value;
+
+        if(!file) return alert("Please select a CSV file first.");
 
         const btn = document.getElementById('btnUpload');
         btn.disabled = true;
-        document.getElementById('log').innerHTML = ''; // Clear log
+        btn.classList.add('disabled-state');
+        btn.innerText = "Processing...";
+        document.getElementById('log').innerHTML = '';
 
-        log("STEP 1: Checking User Auth...");
-        const user = firebase.auth().currentUser;
-        if(!user) {
-            log("❌ ERROR: No user logged in. Please log in on the dashboard first.", "error");
-            btn.disabled = false;
-            return;
-        }
-        log(`✅ User detected: ${user.email}`);
-
-        log("STEP 2: Reading CSV file...");
         Papa.parse(file, {
             header: true,
             skipEmptyLines: true,
+            transformHeader: h => h.trim(), // Remove whitespace from headers automatically
             complete: function(results) {
-                if (results.data.length === 0) {
-                    log("❌ ERROR: CSV file is empty.", "error");
-                    btn.disabled = false;
-                    return;
-                }
-                // Log the headers found to check for weird characters
-                log(`ℹ️ Headers Found: [${results.meta.fields.join(', ')}]`);
-                runDiagnosticUpload(results.data);
+                if(mode === 'master') uploadMasterList(results.data);
+                else uploadHistoryBook(results.data);
             },
             error: function(err) {
-                log(`❌ CSV READ ERROR: ${err.message}`, "error");
+                alert("CSV Error: " + err.message);
                 btn.disabled = false;
+                btn.classList.remove('disabled-state');
             }
         });
     }
 
-    async function runDiagnosticUpload(data) {
-        log(`STEP 3: Processing ${data.length} rows...`);
-
-        // Check first row keys
-        const firstRow = data[0];
-        const keys = Object.keys(firstRow);
-        const pidKey = keys.find(k => k.includes('Client ID')); // Fuzzy search
-
-        if(!pidKey) {
-            log("❌ FATAL ERROR: Could not find a column named 'Client ID'.", "error");
-            log(`   Found these columns instead: ${keys.join(', ')}`, "warn");
-            log("   Fix: Open CSV and ensure cell A1 says exactly 'Client ID'.", "warn");
-            document.getElementById('btnUpload').disabled = false;
-            return;
-        }
-        log(`✅ Using '${pidKey}' as the ID column.`);
-
-        const batch = db.batch();
-        let count = 0;
-        const limit = 5; // ONLY TRY 5 ROWS FIRST for safety
-
-        log(`STEP 4: Attempting to upload FIRST 5 ROWS to test connection...`);
-
-        try {
-            for (let i = 0; i < Math.min(data.length, limit); i++) {
-                const row = data[i];
-                const pid = row[pidKey];
-
-                if(!pid) {
-                    log(`⚠️ Skipped Row ${i+1}: Missing ID`);
-                    continue;
-                }
-
-                const docRef = db.collection('master_client_list').doc(String(pid).trim());
-                batch.set(docRef, {
-                    pid: pid,
-                    test_upload: true,
-                    uploadedAt: firebase.firestore.FieldValue.serverTimestamp()
-                }, { merge: true });
-
-                count++;
-            }
-
-            if(count === 0) {
-                log("❌ Error: No valid rows found in first 5 lines.", "error");
-                return;
-            }
-
-            log(`⏳ Sending data to Firebase... (Please wait)`);
-            await batch.commit();
-            log(`✅ SUCCESS! Firebase Connection is Working.`, "warn");
-            log(`   (Test batch of ${count} records saved.)`);
-
-            // If we get here, connection is good. Now do the real upload.
-            if(confirm("Test successful! Ready to upload the full list?")) {
-                uploadFullList(data, pidKey);
-            }
-
-        } catch (e) {
-            log(`❌ FIREBASE ERROR: ${e.code}`, "error");
-            log(`   Message: ${e.message}`, "error");
-            log(`   HINT: This usually means 'Firestore Rules' are blocking you.`, "warn");
-        }
-
-        document.getElementById('btnUpload').disabled = false;
-    }
-
-    async function uploadFullList(data, pidKey) {
-        log("--- STARTING FULL UPLOAD ---");
+    async function uploadMasterList(data) {
+        log("Starting Master List Upload...");
         const batchSize = 400;
         let batch = db.batch();
         let count = 0;
-        let batchCount = 0;
 
         for (const row of data) {
-            const pid = row[pidKey];
+            const pid = row['Client ID'];
             if (!pid) continue;
 
-            // Clean Data
-            let cleanRev = 0;
-            if(row['Recur Amt']) cleanRev = parseFloat(row['Recur Amt'].replace(/[$,]/g, ''));
-
-            let cleanDate = '';
-            if(row['Start Date']) {
-                const parts = row['Start Date'].split('-');
-                if(parts.length === 3) cleanDate = `20${parts[2]}-${parts[0]}-${parts[1]}`;
-            }
+            let cleanRev = row['Recur Amt'] ? parseFloat(row['Recur Amt'].replace(/[$,]/g, '')) : 0;
+            let cleanDate = formatDate(row['Start Date']);
 
             const docRef = db.collection('master_client_list').doc(String(pid).trim());
+
             batch.set(docRef, {
                 pid: pid,
                 name: row['Service Location Name'] || '',
@@ -185,26 +169,175 @@
                 contactName: row['Contact Name'] || '',
                 contactPhone: row['Contact Phone'] || '',
                 contactEmail: row['Contact Email'] || '',
-                uploadedAt: firebase.firestore.FieldValue.serverTimestamp()
+                lastImportedAt: firebase.firestore.FieldValue.serverTimestamp()
             }, { merge: true });
 
             count++;
-            if (count >= batchSize) {
+            if (count % batchSize === 0) {
                 await batch.commit();
-                batchCount++;
-                log(`Saved Batch ${batchCount} (${count} records)`);
+                log(`Synced ${count} records...`);
                 batch = db.batch();
-                count = 0;
+            }
+        }
+        if (count > 0) await batch.commit();
+
+        document.getElementById('status').innerText = `✅ Master List Updated (${count} records)`;
+        document.getElementById('btnUpload').disabled = false;
+        document.getElementById('btnUpload').classList.remove('disabled-state');
+        document.getElementById('btnUpload').innerText = "Start Import";
+        alert("Master List Updated!");
+    }
+
+    async function uploadHistoryBook(data) {
+        log("Starting History Import (Aggressive Date Logic)...");
+        const doGeo = document.getElementById('geoEnabled').checked;
+        const batchSize = 400;
+        let batch = db.batch();
+        let count = 0;
+        let created = 0;
+        let batchCounter = 0;
+
+        for (const row of data) {
+            const type = row['Type'];
+            const clientId = row['Client'];
+
+            if (!clientId || type === '1x Job') continue;
+
+            // Lookup Master Data
+            let masterData = {};
+            try {
+                const snap = await db.collection('master_client_list').doc(String(clientId).trim()).get();
+                if (snap.exists) masterData = snap.data();
+            } catch(e) {}
+
+            const finalName = masterData.name || `Client ${clientId}`;
+            const finalAddr = masterData.address || 'Address Lookup Failed';
+
+            // --- SMART DATE & STATUS LOGIC (FIXED) ---
+            let endDate = null;
+            let inactiveReason = null;
+
+            // Check if account should be inactive
+            let isInactive = (type === 'Inactive' || type === 'Transfer' || type === 'Transfer FR Request');
+
+            if (isInactive) {
+                if (type.includes('Transfer')) {
+                    inactiveReason = 'Transferred';
+                } else {
+                    inactiveReason = 'Past Service';
+                }
+
+                // Priority 1: Transfer Date
+                let endRaw = row['Transfer Date'];
+
+                // Priority 2: Last Clean
+                if (!endRaw || endRaw.trim() === '') endRaw = row['Last Clean'];
+
+                // Priority 3: Last Responsible
+                if (!endRaw || endRaw.trim() === '') endRaw = row['Last Responsible'];
+
+                if (endRaw) endDate = formatDate(endRaw);
+
+                // FORCE FALLBACK: If status is inactive but no date found, use TODAY.
+                // This fixes the "Infinite Graph" bug.
+                if (!endDate) {
+                    endDate = new Date().toISOString().split('T')[0];
+                    log(`⚠️ Forced End Date (Today) for: ${clientId}`, 'warn');
+                }
+            }
+            // -------------------------------
+
+            const startDate = formatDate(row['Start Date']);
+            const revenue = row['Recur Amt'] ? parseFloat(row['Recur Amt'].replace(/[$,]/g, '')) : 0;
+
+            // Geocoding
+            let lat = null;
+            let lng = null;
+            if (doGeo && finalAddr && finalAddr.length > 5) {
+                await sleep(600);
+                const coords = await getCoordinates(finalAddr);
+                if (coords) {
+                    lat = coords.lat;
+                    lng = coords.lng;
+                    log(`📍 Found pin for: ${clientId}`);
+                }
+            }
+
+            const accRef = db.collection('accounts').doc(`ACC_${clientId}`);
+            const accData = {
+                pid: clientId,
+                name: finalName,
+                address: finalAddr,
+                revenue: revenue,
+                startDate: startDate,
+                endDate: endDate,
+                status: isInactive ? 'Inactive' : 'Active',
+                inactiveReason: inactiveReason,
+                contactName: masterData.contactName || '',
+                contactPhone: masterData.contactPhone || '',
+                contactEmail: masterData.contactEmail || '',
+                owner: ALLOWED_ADMIN_EMAIL,
+                createdAt: firebase.firestore.FieldValue.serverTimestamp()
+            };
+
+            if(lat && lng) {
+                accData.lat = lat;
+                accData.lng = lng;
+            }
+
+            batch.set(accRef, accData, { merge: true });
+
+            count++;
+            created++;
+            batchCounter++;
+
+            if (batchCounter >= batchSize) {
+                await batch.commit();
+                log(`💾 Saved batch of ${batchSize} accounts...`);
+                batch = db.batch();
+                batchCounter = 0;
             }
         }
 
-        if (count > 0) {
-            await batch.commit();
-            log(`Saved Final Batch (${count} records)`);
-        }
+        if (batchCounter > 0) await batch.commit();
 
-        log("🎉 FULL UPLOAD COMPLETE!");
-        alert("Success! All data uploaded.");
+        document.getElementById('status').innerText = `✅ Processed ${created} Accounts!`;
+        document.getElementById('btnUpload').disabled = false;
+        document.getElementById('btnUpload').classList.remove('disabled-state');
+        document.getElementById('btnUpload').innerText = "Start Import";
+
+        alert(`Import Complete!`);
+    }
+
+    function formatDate(dateStr) {
+        if(!dateStr) return '';
+        // Handle various Excel date formats (10/12/25, 10-12-2025)
+        const parts = dateStr.trim().replace(/\//g, '-').split('-');
+        if(parts.length === 3) {
+            let y = parts[2];
+            // Fix 2-digit years
+            if(y.length === 2) y = '20' + y;
+            // Ensure proper YYYY-MM-DD
+            return `${y}-${parts[0].padStart(2,'0')}-${parts[1].padStart(2,'0')}`;
+        }
+        return '';
+    }
+
+    async function wipeMasterList() {
+        if(!confirm("⚠️ DANGER: This deletes the Master Client List. Continue?")) return;
+        const confirmation = prompt("Type DELETE to confirm:");
+        if (confirmation !== "DELETE") return;
+
+        document.getElementById('status').innerText = "DELETING...";
+        try {
+            const collectionRef = db.collection('master_client_list');
+            const snapshot = await collectionRef.get();
+            const batch = db.batch();
+            snapshot.docs.forEach((doc) => batch.delete(doc.ref));
+            await batch.commit();
+            alert("Master List Wiped.");
+            document.getElementById('status').innerText = "Database Empty";
+        } catch (e) { alert("Error: " + e.message); }
     }
 </script>
 </body>
