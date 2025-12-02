@@ -10,10 +10,15 @@
 
         .upload-box { border: 2px dashed #cbd5e1; border-radius: 8px; padding: 30px; text-align: center; background: #f8fafc; transition: all 0.2s; margin: 20px 0; }
 
-        /* Updated Button Styles for Disabled State */
+        /* Updated Button Styles */
         button { background: #0d9488; color: white; border: none; padding: 12px 24px; font-size: 1rem; border-radius: 6px; cursor: pointer; font-weight: bold; width: 100%; transition: background 0.2s; }
         button:hover { background: #0f766e; }
         button.disabled-state { background: #9ca3af !important; cursor: not-allowed !important; opacity: 0.7; }
+
+        /* Danger Zone Styles */
+        .danger-zone { margin-top: 40px; padding-top: 20px; border-top: 1px solid #e5e7eb; }
+        .btn-danger { background: #fee2e2; color: #dc2626; border: 1px solid #fca5a5; }
+        .btn-danger:hover { background: #dc2626; color: white; }
 
         .log-window { background: #1f2937; color: #10b981; padding: 15px; height: 200px; overflow-y: auto; border-radius: 8px; margin-top: 20px; font-family: monospace; font-size: 0.85rem; display: none; }
         .log-entry { margin-bottom: 4px; border-bottom: 1px solid #374151; padding-bottom: 2px; }
@@ -36,7 +41,8 @@
         🔒 Access Denied. You must be logged in as nate@anagophilly.com to use this tool.
     </div>
 
-    <div id="appContent" style="opacity:0.5; pointer-events:none;"> <div class="badge">Safe Mode: Upsert Only (No Deletes)</div>
+    <div id="appContent" style="opacity:0.5; pointer-events:none;">
+        <div class="badge">Safe Mode: Upsert Only</div>
         <p>Use this tool to update your <b>Master Client List</b>. <br>New clients will be added. Existing clients will be updated.</p>
 
         <div class="upload-box">
@@ -47,6 +53,12 @@
 
         <div id="status" style="margin-top:15px; text-align:center; font-weight:bold; color: #4b5563; min-height: 20px;"></div>
         <div id="log" class="log-window"></div>
+
+        <div class="danger-zone">
+            <h4 style="margin: 0 0 10px 0; color: #dc2626;">Danger Zone</h4>
+            <p style="font-size: 0.85rem; margin-bottom: 15px;">Uploaded the wrong list? Use this to wipe the Master List clean.</p>
+            <button onclick="wipeMasterList()" class="btn-danger">🗑️ Delete All Master Data</button>
+        </div>
     </div>
 </div>
 
@@ -89,14 +101,6 @@
     }
 
     function processFile() {
-        // Double check security just in case
-        const user = firebase.auth().currentUser;
-        if (!user || user.email.toLowerCase() !== ALLOWED_ADMIN_EMAIL.toLowerCase()) {
-            alert("Security Alert: Unauthorized access attempt prevented.");
-            window.location.reload();
-            return;
-        }
-
         const fileInput = document.getElementById('uploadCsv');
         const file = fileInput.files[0];
         if(!file) return alert("Please select a CSV file first.");
@@ -172,6 +176,56 @@
         document.getElementById('btnUpload').style.background = "#10b981";
         document.getElementById('btnUpload').classList.remove('disabled-state');
         alert(`Complete! ${totalProcessed} clients have been updated in the Master List.`);
+    }
+
+    // --- DANGER ZONE LOGIC ---
+    async function wipeMasterList() {
+        // Safety Check 1
+        if(!confirm("⚠️ DANGER: This will delete ALL data in the Master Client List.\n\nThis cannot be undone. Are you sure?")) return;
+
+        // Safety Check 2
+        const confirmation = prompt("To confirm deletion, type the word DELETE below:");
+        if (confirmation !== "DELETE") {
+            return alert("Deletion cancelled. You did not type DELETE.");
+        }
+
+        document.getElementById('status').innerText = "DELETING ALL DATA...";
+        log("STARTED DELETION SEQUENCE...");
+
+        try {
+            const collectionRef = db.collection('master_client_list');
+            const batchSize = 400;
+
+            // Recursive function to delete in batches
+            async function deleteBatch() {
+                const snapshot = await collectionRef.limit(batchSize).get();
+
+                if (snapshot.size === 0) {
+                    document.getElementById('status').innerText = "✅ Database is Empty.";
+                    log("Deletion Complete. Master List is empty.");
+                    alert("All master data has been deleted.");
+                    return;
+                }
+
+                const batch = db.batch();
+                snapshot.docs.forEach((doc) => {
+                    batch.delete(doc.ref);
+                });
+
+                await batch.commit();
+                log(`Deleted batch of ${snapshot.size} records...`);
+
+                // Recurse
+                await deleteBatch();
+            }
+
+            await deleteBatch();
+
+        } catch (e) {
+            console.error(e);
+            alert("Error deleting data: " + e.message);
+            log("Error: " + e.message);
+        }
     }
 </script>
 </body>
