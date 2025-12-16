@@ -43,6 +43,14 @@ async function loadPayroll() {
 
         jobsSnap.forEach(doc => {
             const job = doc.data();
+
+            // FIX: Check if timestamps exist before using them to prevent crash
+            if (!job.actualEndTime || !job.actualStartTime) {
+                console.warn("Skipping job with missing timestamps:", doc.id);
+                return;
+            }
+
+            // Safe to call .toDate() now
             const jobEnd = job.actualEndTime.toDate();
 
             if (jobEnd >= payrollStart && jobEnd <= payrollEnd) {
