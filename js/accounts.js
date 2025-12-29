@@ -441,8 +441,69 @@ document.addEventListener('DOMContentLoaded', () => {
     const btn = document.getElementById('btnPidAutoFill');
     if(btn) btn.addEventListener('click', runPidAutoFill);
 });
+// --- REPLACE THE OLD runPidAutoFill FUNCTION WITH THIS ---
+
 async function runPidAutoFill() {
-    alert("Use the standard PID fill logic here.");
+    const pidInput = document.getElementById('accountPID');
+    const pidVal = pidInput.value.trim();
+
+    if (!pidVal) {
+        return alert("Please enter a PID first.");
+    }
+
+    const btn = document.getElementById('btnPidAutoFill');
+    const originalText = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '🔍 Searching...';
+
+    try {
+        // Search the Master List for this PID
+        const snap = await db.collection('master_client_list')
+            .where('pid', '==', pidVal)
+            .limit(1)
+            .get();
+
+        if (snap.empty) {
+            // Try searching by Document ID just in case
+            const docRef = await db.collection('master_client_list').doc(pidVal).get();
+            if (docRef.exists) {
+                fillForm(docRef.data());
+            } else {
+                alert(`No master record found for PID: ${pidVal}`);
+            }
+        } else {
+            fillForm(snap.docs[0].data());
+        }
+
+    } catch (e) {
+        console.error(e);
+        alert("Error fetching data: " + e.message);
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = originalText;
+    }
+}
+
+// Helper to map Master Data -> Add Account Form Inputs
+function fillForm(data) {
+    // 1. Basic Info
+    if(data.name) document.getElementById('accountName').value = data.name;
+    if(data.street) document.getElementById('accountStreet').value = data.street;
+    if(data.city) document.getElementById('accountCity').value = data.city;
+    if(data.state) document.getElementById('accountState').value = data.state;
+    if(data.zip) document.getElementById('accountZip').value = data.zip;
+
+    // 2. Operations
+    if(data.revenue) document.getElementById('accountRevenue').value = data.revenue;
+    if(data.startDate) document.getElementById('accountStartDate').value = data.startDate;
+
+    // 3. Contact Info
+    if(data.contactName) document.getElementById('contactName').value = data.contactName;
+    if(data.contactPhone) document.getElementById('contactPhone').value = data.contactPhone;
+    if(data.contactEmail) document.getElementById('contactEmail').value = data.contactEmail;
+
+    // 4. Success Message
+    window.showToast(`✨ Auto-Filled: ${data.name}`);
 }
 
 window.loadAccountsList = loadAccountsList;

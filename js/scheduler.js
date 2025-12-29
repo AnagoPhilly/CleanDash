@@ -1,7 +1,7 @@
 // js/scheduler.js
 
 // --- CALENDAR STATE ---
-let currentView = 'week';
+let currentView = 'day'; // Default to Day View
 let currentDate = new Date();
 let alertedJobs = new Set();
 const alertSound = new Audio('https://assets.mixkit.co/sfx/preview/mixkit-software-interface-start-2574.mp3');
@@ -17,15 +17,30 @@ let currentEmpFilter = 'ALL';
 let showEmployeeColors = false; // TOGGLE STATE
 let employeeColors = {}; // Cache for colors
 
+// --- NAVIGATION LISTENER: Force "Day View" & "Today" on Tab Click ---
+document.addEventListener('click', function(e) {
+    const navItem = e.target.closest('.nav-item[data-page="scheduler"]');
+    if (navItem) {
+        // User clicked the Scheduler tab. Reset state.
+        console.log("CleanDash: Scheduler Tab Clicked - Resetting to Today/Day View");
+        currentView = 'day';
+        currentDate = new Date();
+        // Note: main.js calls loadScheduler() on click, which will use these updated values.
+    }
+});
+
 function normalizeDate(date, view) {
     const d = new Date(date);
     d.setHours(0, 0, 0, 0);
     if (view === 'week') {
         const day = d.getDay();
+        // Adjust to make Monday the start of the week
+        // If Sunday (0) -> go back 6 days
+        // If Mon(1) -> go back 0 days (1-1) -> logic: day - 1, but +1 for date math
         const diff = d.getDate() - day + (day === 0 ? -6 : 1);
         d.setDate(diff);
     } else if (view === 'month') {
-        d.setDate(1);
+        d.setDate(1); // Always start at 1st of month for Month View
     }
     return d;
 }
@@ -78,7 +93,7 @@ async function loadScheduler() {
 
         updateHeaderUI();
         renderFilterDropdown(employees);
-        renderColorToggle(); // NEW: Render the color toggle switch
+        renderColorToggle();
 
         const alertControls = document.getElementById('alertControls');
         if(alertControls) alertControls.style.display = 'flex';
@@ -93,6 +108,9 @@ async function loadScheduler() {
         if (currentEmpFilter !== 'ALL') {
             filteredJobs = jobs.filter(job => job.employeeId === currentEmpFilter);
         }
+
+        // Cache jobs for mobile popup access
+        window.schedulerJobsCache = filteredJobs;
 
         const alertThreshold = schedulerSettings.alertThreshold || 15;
         const emailDelayMinutes = schedulerSettings.emailDelayMinutes || 60;
@@ -153,7 +171,6 @@ function renderColorToggle() {
             toggleContainer.style.display = 'flex';
             toggleContainer.style.alignItems = 'center';
 
-            // HTML for the switch
             toggleContainer.innerHTML = `
                 <label class="toggle-label" style="font-size:0.85rem; color:#4b5563; font-weight:600; cursor:pointer;">
                     <input type="checkbox" id="chkEmployeeColors" onchange="toggleColorMode(this)" style="margin-right:5px;">
@@ -203,12 +220,14 @@ function renderDayView(jobs, alertThreshold, emailDelay, emailEnabled, accountAl
 function renderMonthView(jobs, alertThreshold, emailDelay, emailEnabled, accountAlarms) {
     const grid = document.getElementById('schedulerGrid');
     if(!grid) return;
+
+    // START WEEK ON MONDAY
     let html = `
     <div class="month-header">
-        <div class="month-day-label">Sun</div><div class="month-day-label">Mon</div>
-        <div class="month-day-label">Tue</div><div class="month-day-label">Wed</div>
-        <div class="month-day-label">Thu</div><div class="month-day-label">Fri</div>
-        <div class="month-day-label">Sat</div>
+        <div class="month-day-label">Mon</div><div class="month-day-label">Tue</div>
+        <div class="month-day-label">Wed</div><div class="month-day-label">Thu</div>
+        <div class="month-day-label">Fri</div><div class="month-day-label">Sat</div>
+        <div class="month-day-label">Sun</div>
     </div>
     <div class="calendar-month-view">`;
 
@@ -218,8 +237,11 @@ function renderMonthView(jobs, alertThreshold, emailDelay, emailEnabled, account
     const lastDay = new Date(year, month + 1, 0);
     const now = new Date();
 
+    // BACKTRACK TO PREVIOUS MONDAY
     let iterator = new Date(firstDay);
-    iterator.setDate(iterator.getDate() - iterator.getDay());
+    const dayOfWeek = iterator.getDay(); // 0 (Sun) to 6 (Sat)
+    const diff = (dayOfWeek === 0 ? 6 : dayOfWeek - 1);
+    iterator.setDate(iterator.getDate() - diff);
 
     for(let i=0; i<42; i++) {
         const isCurrMonth = iterator.getMonth() === month;
@@ -228,37 +250,44 @@ function renderMonthView(jobs, alertThreshold, emailDelay, emailEnabled, account
         const activeClass = isToday ? ' today-active' : '';
         const dayJobs = jobs.filter(j => isSameDay(j.start, iterator));
 
-        if (!isCurrMonth && iterator > lastDay && iterator.getDay() === 0) break;
+        if (!isCurrMonth && iterator > lastDay && iterator.getDay() === 1) break;
 
         html += `<div class="month-day ${isCurrMonth ? '' : 'other-month'}${activeClass}" onclick="window.showAssignShiftModal('17:00', '${dateStr}')">
             <div class="month-date-num">${iterator.getDate()}</div>
             <div class="month-events">`;
 
+        // Render events
         dayJobs.forEach(job => {
             let statusClass = 'month-event';
             let extraStyle = '';
 
             // LOGIC: COLOR CODING
             if(job.status === 'Completed') statusClass += ' done';
-            else if(job.status === 'Started') statusClass += ' active'; // This maps to Grey in CSS
+            else if(job.status === 'Started') statusClass += ' active';
             else if (new Date() > new Date(job.start.getTime() + alertThreshold*60000)) statusClass += ' late';
             else {
                 // Scheduled: Check toggle
                 if (showEmployeeColors && employeeColors[job.employeeId]) {
-                    // Override default blue with employee color
-                    extraStyle = `background-color: ${employeeColors[job.employeeId]}; border-left-color: rgba(0,0,0,0.2); color: #fff;`;
+                    extraStyle = `background-color: ${employeeColors[job.employeeId]}; color: #fff;`;
                 }
             }
 
             const alarmIndicator = accountAlarms[job.accountId] ? '🔒' : '';
 
+            // For Mobile: This text will be shown in the bar (and truncated via CSS)
+            // For Desktop: This text is shown in the pill
             html += `<div class="${statusClass}" style="${extraStyle}" data-id="${job.id}" onclick="event.stopPropagation()">
                 ${alarmIndicator} ${formatTime(job.start)} ${job.accountName}
             </div>`;
         });
 
-        html += `</div>
-            <button class="month-add-btn" onclick="event.stopPropagation(); window.showAssignShiftModal('17:00', '${dateStr}')">+</button>
+        html += `</div>`;
+
+        // Mobile Detail Button (+)
+        html += `<div class="mobile-detail-btn" onclick="event.stopPropagation(); showMobileDayDetails('${dateStr}')">+</div>`;
+
+        // Desktop Add Button
+        html += `<button class="month-add-btn" onclick="event.stopPropagation(); window.showAssignShiftModal('17:00', '${dateStr}')">+</button>
         </div>`;
 
         iterator.setDate(iterator.getDate() + 1);
@@ -267,6 +296,79 @@ function renderMonthView(jobs, alertThreshold, emailDelay, emailEnabled, account
     html += `</div>`;
     grid.innerHTML = html;
 }
+
+// --- Mobile Detail Popup Function ---
+window.showMobileDayDetails = function(dateStr) {
+    const targetDate = new Date(dateStr + 'T00:00:00');
+
+    const allJobs = window.schedulerJobsCache || [];
+
+    const dayJobs = allJobs.filter(j => {
+        const d = j.start;
+        return d.getDate() === targetDate.getDate() &&
+               d.getMonth() === targetDate.getMonth() &&
+               d.getFullYear() === targetDate.getFullYear();
+    });
+
+    dayJobs.sort((a,b) => a.start - b.start);
+
+    const displayDate = targetDate.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
+    let content = `<div style="padding:10px;">
+        <h3 style="margin:0 0 10px 0; font-size:1.1rem; color:#0d9488;">${displayDate}</h3>`;
+
+    if (dayJobs.length === 0) {
+        content += `<p style="color:#666; text-align:center; padding:20px;">No shifts scheduled.</p>`;
+    } else {
+        dayJobs.forEach(job => {
+            let statusIcon = '📅';
+            let statusColor = '#3b82f6';
+            if (job.status === 'Completed') { statusIcon = '✅'; statusColor = '#10b981'; }
+            else if (job.status === 'Started') { statusIcon = '🔄'; statusColor = '#eab308'; }
+
+            content += `
+            <div style="background:#f9fafb; padding:12px; margin-bottom:10px; border-left:4px solid ${statusColor}; border-radius:6px; box-shadow:0 1px 2px rgba(0,0,0,0.05);" onclick="window.editJob({id:'${job.id}', accountId:'${job.accountId}', employeeId:'${job.employeeId}', status:'${job.status}'}); document.getElementById('mobileDayPopup').remove();">
+                <div style="display:flex; justify-content:space-between; margin-bottom:4px;">
+                    <strong style="color:#1f2937;">${job.accountName}</strong>
+                    <span style="font-size:0.8rem; color:#6b7280;">${formatTime(job.start)}</span>
+                </div>
+                <div style="font-size:0.9rem; color:#4b5563;">
+                    ${statusIcon} 👤 ${job.employeeName}
+                </div>
+            </div>`;
+        });
+    }
+
+    content += `
+        <button onclick="window.showAssignShiftModal('09:00', '${dateStr}'); document.getElementById('mobileDayPopup').remove();"
+        style="width:100%; padding:10px; background:#0d9488; color:white; border:none; border-radius:6px; font-weight:bold; margin-top:10px;">
+        + Add Shift
+        </button>
+    </div>`;
+
+    const overlay = document.createElement('div');
+    overlay.id = 'mobileDayPopup';
+    overlay.style.cssText = `
+        position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+        background: rgba(0,0,0,0.5); z-index: 9999;
+        display: flex; justify-content: center; align-items: center;
+        backdrop-filter: blur(2px);
+    `;
+
+    overlay.innerHTML = `
+        <div style="background:white; width:85%; max-width:400px; max-height:80vh; overflow-y:auto; border-radius:12px; padding:15px; position:relative; animation: popIn 0.2s ease-out;">
+            <button onclick="document.getElementById('mobileDayPopup').remove()"
+                style="position:absolute; top:10px; right:15px; border:none; background:none; font-size:1.5rem; color:#999;">&times;</button>
+            ${content}
+        </div>
+    `;
+
+    const style = document.createElement('style');
+    style.innerHTML = `@keyframes popIn { from { transform: scale(0.9); opacity: 0; } to { transform: scale(1); opacity: 1; } }`;
+    overlay.appendChild(style);
+
+    document.body.appendChild(overlay);
+};
+
 
 function generateTimeColumn() {
     let html = '<div class="calendar-time-col">';
@@ -286,7 +388,9 @@ function renderDayColumn(dateObj, jobs, alertThreshold, emailDelay, emailEnabled
     const displayDate = dateObj.toLocaleDateString('en-US', { weekday: 'short', month: 'numeric', day: 'numeric' });
     const now = new Date();
     const isToday = isSameDay(dateObj, now);
-    const activeClass = isToday ? ' today-active' : '';
+
+    // CHANGED: Only highlight 'today' if NOT in single day view.
+    const activeClass = (isToday && !isSingleDay) ? ' today-active' : '';
 
     const dayJobs = jobs.filter(j => isSameDay(j.start, dateObj));
     dayJobs.sort((a, b) => a.start - b.start);
@@ -332,12 +436,12 @@ function renderDayColumn(dateObj, jobs, alertThreshold, emailDelay, emailEnabled
         let statusIcon = '';
         let extraStyle = '';
 
-        // LOGIC: COLOR CODING (Updated for new request)
+        // LOGIC: COLOR CODING
         if (job.status === 'Completed') {
             statusClass += ' done';
             statusIcon = '✅';
         } else if (job.status === 'Started') {
-            statusClass += ' active'; // CSS updated to Grey
+            statusClass += ' active';
             statusIcon = '🔄';
         } else {
             // Check Late
@@ -348,9 +452,7 @@ function renderDayColumn(dateObj, jobs, alertThreshold, emailDelay, emailEnabled
             } else {
                 // Scheduled
                 statusClass += ' scheduled';
-                // Check Toggle for Employee Color
                 if (showEmployeeColors && employeeColors[job.employeeId]) {
-                    // Force background color via inline style
                     extraStyle = `background-color: ${employeeColors[job.employeeId]}; border-left-color: rgba(0,0,0,0.2); color: #fff;`;
                 }
             }
@@ -358,7 +460,7 @@ function renderDayColumn(dateObj, jobs, alertThreshold, emailDelay, emailEnabled
 
         const alarmCode = accountAlarms[job.accountId];
         const alarmHtml = alarmCode ? `<div class="event-meta" style="color:${extraStyle ? '#fff' : '#ef4444'}; font-weight:bold;">🚨 ${alarmCode}</div>` : '';
-        const titleColor = extraStyle ? 'color: #fff;' : ''; // Ensure text is readable if custom bg
+        const titleColor = extraStyle ? 'color: #fff;' : '';
 
         html += `
         <div class="${statusClass}"
@@ -376,9 +478,6 @@ function renderDayColumn(dateObj, jobs, alertThreshold, emailDelay, emailEnabled
     html += `</div></div>`;
     return html;
 }
-
-// ... (Rest of utility functions: setupInteractions, dblClickListeners, etc. remain the same) ...
-// INCLUDING ALL PREVIOUS LOGIC BELOW:
 
 function setupInteractions() {
     const grid = document.getElementById('schedulerGrid');
@@ -602,10 +701,16 @@ function updateHeaderUI() {
     });
 }
 
+// --- UPDATED VIEW SWITCHER ---
+// Enforces "Current Week/Today" when switching modes
 window.changeView = function(view) {
     currentView = view;
-    if (view === 'day') { currentDate = new Date(); }
-    else { currentDate = normalizeDate(currentDate, currentView); }
+    // If user switches to Week or Day, force reset to REAL WORLD TODAY.
+    // This overrides the "Month View" date which is usually the 1st of the month.
+    if (view === 'week' || view === 'day') {
+        currentDate = new Date();
+    }
+    currentDate = normalizeDate(currentDate, currentView);
     loadScheduler();
 };
 

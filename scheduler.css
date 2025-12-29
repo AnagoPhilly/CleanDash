@@ -39,11 +39,19 @@
     flex-direction: column;
 }
 
+/* Ensure the inner grid wrapper fills height for Month View calculations */
+#schedulerGrid {
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+}
+
 /* --- WEEK & DAY VIEW (Vertical Time Slots) --- */
 .calendar-view {
     display: flex;
     min-width: 100%;
     position: relative; /* REQUIRED for the row highlight overlay */
+    flex: 1; /* Allow to fill space */
 }
 
 /* Time Gutter (Left Column) */
@@ -301,8 +309,7 @@
 /* --- MONTH VIEW (Classic Grid) --- */
 .calendar-month-view {
     display: grid;
-    grid-template-rows: auto 1fr;
-    height: 100%;
+    grid-template-rows: auto 1fr; /* Default for desktop */
 }
 
 .month-header {
@@ -479,10 +486,148 @@
     border-style: solid;
 }
 
-/* Mobile Scheduler */
+/* --- MOBILE SCHEDULER ADJUSTMENTS --- */
 @media (max-width: 768px) {
     .calendar-time-col { width: 50px; }
     .calendar-day-col { min-width: 150px; }
     .event-meta { display: none; }
     .view-toggles { width: 100%; justify-content: center; }
+
+    /* --- MOBILE MONTH VIEW FIXES --- */
+
+    /* 1. Force 7 Columns BUT expanded width to show 5 initially */
+    .calendar-month-view,
+    .month-header {
+        display: grid !important;
+        grid-template-columns: repeat(7, 1fr) !important;
+        width: 140% !important;
+        min-width: 140% !important;
+    }
+
+    /* 2. FORCE EQUAL ROW HEIGHTS (1fr) & FILL CONTAINER */
+    .calendar-month-view {
+        height: 100% !important; /* Fill the scheduler container */
+        grid-auto-rows: 1fr !important; /* Distribute height equally */
+        grid-template-rows: none !important; /* Reset default */
+    }
+
+    /* 2. Header Adjustments */
+    .month-header div {
+        font-size: 0.7rem;
+        padding: 5px 0;
+        text-align: center;
+        overflow: hidden;
+    }
+
+    /* 3. Larger Blocks - Let them fill the 1fr space */
+    .month-day {
+        min-height: 0 !important; /* Allow shrinking if needed */
+        height: 100% !important;  /* Fill the grid cell */
+        padding: 2px !important;
+        position: relative;
+        display: flex;
+        flex-direction: column;
+        justify-content: flex-start;
+        align-items: center;
+        overflow: hidden;
+    }
+
+    .month-label {
+        font-size: 0.75rem;
+        margin-bottom: 0;
+        align-self: flex-start;
+        padding-left: 2px;
+    }
+
+    .month-date-num {
+        font-size: 0.9rem;
+        margin-bottom: 4px;
+    }
+
+    /* 4. SHOW Events as SMALL BARS with TEXT */
+    .month-events {
+        display: flex;
+        flex-direction: column; /* Stack vertically */
+        justify-content: flex-start;
+        align-items: stretch; /* Full width of container */
+        gap: 1px;
+        width: 100%;
+        overflow: hidden;
+        padding-top: 2px;
+        margin-bottom: 24px; /* Room for the + button */
+    }
+
+    .month-day .month-event {
+        display: block !important;
+        width: auto !important; /* Allow it to fill the width */
+        height: 14px; /* Fixed height for consistency */
+        min-height: 0 !important;
+        padding: 0 3px !important;
+        border-radius: 2px;
+        font-size: 0.65rem !important; /* Make text visible */
+        line-height: 14px;
+        text-align: left;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis; /* "First number of letters that will fit" */
+        border: none !important;
+        margin: 0 1px 1px 1px;
+        flex-shrink: 0;
+    }
+
+    /* --- MATCH DAY/WEEK PASTEL COLORS --- */
+
+    /* Scheduled (Default) - Light Blue */
+    .month-day .month-event {
+        background-color: #e0f2fe !important;
+        color: #1e40af !important;
+    }
+
+    /* Completed - Light Green */
+    .month-day .month-event.done {
+        background-color: #dcfce7 !important;
+        color: #065f46 !important;
+    }
+
+    /* Late - Light Red */
+    .month-day .month-event.late {
+        background-color: #fee2e2 !important;
+        color: #991b1b !important;
+    }
+
+    /* Started - Light Grey (Previously Yellow) */
+    .month-day .month-event.active {
+        background-color: #f3f4f6 !important;
+        color: #4b5563 !important;
+    }
+
+    /* 5. Hide the DESKTOP add button */
+    .month-day .month-add-btn {
+        display: none !important;
+    }
+
+    /* 6. The Mobile Detail Trigger (+) */
+    .mobile-detail-btn {
+        display: flex !important;
+        justify-content: center;
+        align-items: center;
+        width: 100%;
+        height: 24px;
+        background: rgba(13, 148, 136, 0.1);
+        color: #0d9488;
+        font-weight: bold;
+        font-size: 1.3rem;
+        line-height: 1;
+        border-radius: 4px;
+        margin-top: auto;
+        cursor: pointer;
+        border: none;
+        position: absolute;
+        bottom: 0;
+    }
+}
+
+/* Hide mobile button on desktop */
+.mobile-detail-btn {
+    display: none;
 }
