@@ -1,438 +1,660 @@
-// js/accounts.js
+// js/admin.js
 
-let editMap = null;
-let editMarker = null;
-let editCircle = null;
+const ADMIN_EMAIL = 'nate@anagophilly.com';
+let allMasterAccounts = []; // Cache for search
+let allOwners = []; // Cache owners for syncing
 
-// --- 1. HELPER: TOGGLE DAY CHIP VISUALS ---
-window.toggleDayChip = function(el) {
-    el.classList.toggle('selected');
-};
-
-// --- 2. HELPER: DRAW/UPDATE GEOFENCE CIRCLE ---
-function updateGeofenceCircle(lat, lng, radius) {
-    if (!editMap) return;
-    const safeRadius = Math.max(5, parseFloat(radius) || 200);
-
-    if (editCircle) {
-        if (editMap.hasLayer(editCircle)) editMap.removeLayer(editCircle);
-    }
-
-    editCircle = L.circle([lat, lng], {
-        color: '#2563eb', fillColor: '#60a5fa', fillOpacity: 0.2, weight: 2, radius: safeRadius
-    }).addTo(editMap);
+// Add global function to create a user document
+window.createOwnerDocument = async function(uid, email, name) {
+    const userRef = db.collection('users').doc(uid);
+    await userRef.set({
+        email: email,
+        name: name,
+        role: 'owner',
+        createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+        isAdmin: false // Default to false
+    }, { merge: true });
 }
 
-function handleGeofenceInputChange() {
-    const radius = this.value;
-    if (editMarker) {
-        const latLng = editMarker.getLatLng();
-        updateGeofenceCircle(latLng.lat, latLng.lng, radius);
-    }
-}
-
-// --- 3. MAIN LIST LOADER ---
-window.loadAccountsList = function() {
-  if (!window.currentUser) return;
-  const activeDiv = document.getElementById('accountsList');
-  const inactiveDiv = document.getElementById('inactiveAccountsList');
-  if(activeDiv) activeDiv.innerHTML = '<div style="text-align:center; padding:2rem; color:#888;">Loading Accounts...</div>';
-
-  const q = db.collection('accounts').where('owner', '==', window.currentUser.email);
-
-  q.orderBy('createdAt', 'desc').get().then(snap => {
-
-    if (snap.empty) {
-      if(activeDiv) activeDiv.innerHTML = '<div style="text-align:center; padding:3rem; color:#6b7280;">No accounts yet — click "+ Add Account"</div>';
-      if(inactiveDiv) inactiveDiv.innerHTML = '';
-      return;
-    }
-
-    const tableHead = `<table class="data-table"><thead><tr><th>Name / Contact</th><th>Address / Alarm</th><th style="text-align:right;">Revenue</th><th style="text-align:center;">Actions</th></tr></thead><tbody>`;
-    const inactiveHead = `<table class="data-table" style="opacity:0.7;"><thead><tr><th>Name</th><th>Reason</th><th style="text-align:right;">End Date</th><th style="text-align:center;">Actions</th></tr></thead><tbody>`;
-
-    let activeRows = '', inactiveRows = '', hasActive = false, hasInactive = false;
-    const today = new Date().toISOString().split('T')[0];
-
-    snap.forEach(doc => {
-      const a = doc.data();
-      const safeName = (a.name || '').replace(/'/g, "\\'");
-      const safeAlarm = (a.alarmCode || '').replace(/'/g, "\\'");
-      const isInactive = a.endDate && a.endDate <= today;
-
-      // Handle Service Days (Array -> String for passing to function)
-      const serviceDays = (a.serviceDays || []).join(',');
-
-      if (!isInactive) {
-          hasActive = true;
-          const lat = a.lat || 0;
-          const lng = a.lng || 0;
-          const geofence = a.geofenceRadius || 50;
-
-          activeRows += `<tr>
-            <td><div style="font-weight:600; color:#111827;">${a.name}</div><div style="font-size:0.8rem; color:#6b7280;">${a.contactName || ''}</div></td>
-            <td><div style="color:#4b5563; font-size:0.9rem;">${a.address}</div>${a.alarmCode ? `<div style="font-size:0.75rem; color:#ef4444; font-weight:bold; margin-top:2px;">🚨 ${a.alarmCode}</div>` : ''}</td>
-            <td class="col-revenue">$${(a.revenue || 0).toLocaleString()}</td>
-            <td style="text-align:center;">
-                <div class="action-buttons">
-                    <button onclick="openSpecsModal('${doc.id}', '${safeName}', 'view')" class="btn-xs btn-specs-view">Specs</button>
-                    <button onclick="showEditAccount('${doc.id}', '${safeName}', '${safeAlarm}', ${geofence}, ${lat}, ${lng}, '${serviceDays}')" class="btn-xs btn-edit">Edit</button>
-                </div>
-            </td>
-          </tr>`;
-      } else {
-          hasInactive = true;
-          inactiveRows += `<tr>
-            <td><div style="font-weight:600; color:#4b5563;">${a.name}</div><div style="font-size:0.8rem;">${a.address}</div></td>
-            <td style="color:#ef4444; font-weight:500;">${a.cancelReason || a.inactiveReason || 'Unknown'}</td>
-            <td style="text-align:right; font-family:monospace;">${a.endDate}</td>
-            <td style="text-align:center;">
-                <button onclick="reactivateAccount('${doc.id}')" class="btn-xs" style="border:1px solid #10b981; color:#10b981;">Reactivate</button>
-                <button onclick="deleteAccount('${doc.id}', '${safeName}', true)" class="btn-xs btn-delete">Delete</button>
-            </td>
-          </tr>`;
-      }
-    });
-
-    if(activeDiv) activeDiv.innerHTML = hasActive ? tableHead + activeRows + '</tbody></table>' : '<div style="padding:2rem; text-align:center; color:#ccc;">No active accounts.</div>';
-    if(inactiveDiv) inactiveDiv.innerHTML = hasInactive ? inactiveHead + inactiveRows + '</tbody></table>' : '<div style="padding:1rem; text-align:center; color:#eee;">No canceled/inactive accounts.</div>';
-
-    if (typeof loadMap === 'function') setTimeout(loadMap, 50);
-  });
-};
-
-// --- 4. SHOW EDIT ACCOUNT MODAL ---
-window.showEditAccount = function(id, name, alarm, geofence, lat, lng, daysStr) {
-  document.getElementById('editAccountId').value = id;
-  const titleEl = document.getElementById('editAccountModalTitle');
-  if(titleEl) titleEl.textContent = `Edit: ${name}`;
-
-  const alarmEl = document.getElementById('editAccountAlarm');
-  const geoEl = document.getElementById('editAccountGeofence');
-
-  if(alarmEl) alarmEl.value = alarm || '';
-  if(geoEl) geoEl.value = geofence || 200;
-
-  // --- NEW: POPULATE DAY CHIPS ---
-  const days = daysStr ? daysStr.split(',') : [];
-  const chips = document.querySelectorAll('#editServiceDaysContainer .day-chip');
-  chips.forEach(chip => {
-      const dayText = chip.textContent.trim();
-      if (days.includes(dayText)) chip.classList.add('selected');
-      else chip.classList.remove('selected');
-  });
-
-  document.getElementById('editAccountModal').style.display = 'flex';
-
-  // --- MAP LOGIC ---
-  const ADMIN_EMAIL = 'nate@anagophilly.com';
-  const SYSTEM_ADMIN_EMAIL = 'admin@cleandash.com';
-  const isAdmin = (window.currentUser.email === ADMIN_EMAIL || window.currentUser.email === SYSTEM_ADMIN_EMAIL);
-
-  const helpText = document.getElementById('pinHelpText');
-  if (helpText) {
-      helpText.textContent = isAdmin ? "🔓 ADMIN MODE: Drag pin to set location." : "🔒 Pin location locked. Contact Admin.";
-      helpText.style.color = isAdmin ? "#0d9488" : "#6b7280";
-  }
-
-  setTimeout(() => {
-      const startLat = lat || 39.9526;
-      const startLng = lng || -75.1652;
-      const zoom = lat ? 18 : 10;
-
-      if (!editMap) {
-          const mapEl = document.getElementById('editAccountMap');
-          if(mapEl) {
-            editMap = L.map('editAccountMap').setView([startLat, startLng], zoom);
-            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 21 }).addTo(editMap);
-            editMarker = L.marker([startLat, startLng], { draggable: isAdmin }).addTo(editMap);
-
-            editMarker.on('dragend', function(e) {
-                const newLatLng = e.target.getLatLng();
-                const currentRadius = parseInt(document.getElementById('editAccountGeofence').value);
-                updateGeofenceCircle(newLatLng.lat, newLatLng.lng, currentRadius);
-            });
-          }
-      } else {
-          editMap.setView([startLat, startLng], zoom);
-          editMarker.setLatLng([startLat, startLng]);
-          if (editMarker.dragging) isAdmin ? editMarker.dragging.enable() : editMarker.dragging.disable();
-      }
-
-      if (editMap) {
-          editMap.invalidateSize();
-          updateGeofenceCircle(startLat, startLng, geofence);
-      }
-  }, 400);
-
-  const geoInput = document.getElementById('editAccountGeofence');
-  if (geoInput) {
-      geoInput.removeEventListener('input', handleGeofenceInputChange);
-      geoInput.addEventListener('input', handleGeofenceInputChange);
-  }
-};
-
-// --- 5. SAVE EDITED ACCOUNT ---
-window.saveEditedAccount = async (event) => {
-    const btn = event.target;
-    btn.disabled = true; btn.textContent = 'Saving...';
-
-    const id = document.getElementById('editAccountId').value;
-
-    try {
-        const finalLatLng = editMarker ? editMarker.getLatLng() : { lat: 0, lng: 0 };
-        const newGeofence = parseInt(document.getElementById('editAccountGeofence').value) || 200;
-        const newAlarm = document.getElementById('editAccountAlarm').value.trim();
-
-        // --- NEW: GATHER SELECTED DAYS ---
-        const selectedChips = document.querySelectorAll('#editServiceDaysContainer .day-chip.selected');
-        const serviceDays = Array.from(selectedChips).map(c => c.textContent.trim());
-
-        const updateData = {
-            alarmCode: newAlarm,
-            geofenceRadius: newGeofence,
-            lat: finalLatLng.lat,
-            lng: finalLatLng.lng,
-            serviceDays: serviceDays
-        };
-
-        await db.collection('accounts').doc(id).set(updateData, { merge: true });
-
-        window.showToast('Operational Data Saved!');
-        loadAccountsList();
-
-        if (typeof loadMap === 'function') loadMap();
-        if(window.hideEditAccount) window.hideEditAccount();
-        else document.getElementById('editAccountModal').style.display = 'none';
-
-    } catch (e) {
-        alert('Error: ' + e.message);
-    } finally {
-        btn.disabled = false; btn.textContent = 'Save Operational Data';
-    }
-};
-
-// --- 6. OTHER FUNCTIONS (Keep existing) ---
-window.setPinToUserLocation = function() {
-    const btn = event.target;
-    const originalText = btn.textContent;
-    btn.textContent = "Locating...";
-    btn.disabled = true;
-
-    if (!navigator.geolocation) {
-        alert("Geolocation is not supported by your browser.");
-        btn.textContent = originalText;
-        btn.disabled = false;
+auth.onAuthStateChanged(async user => {
+    // 1. SECURITY GATE
+    if (!user) {
+        window.location.href = 'index.html';
         return;
     }
 
-    navigator.geolocation.getCurrentPosition(
-        (position) => {
-            const lat = position.coords.latitude;
-            const lng = position.coords.longitude;
-            const accuracy = position.coords.accuracy;
+    // Fetch the user's profile to check for "isAdmin" flag
+    let isAuthorized = false;
 
-            if (editMarker && editMap) {
-                const newLatLng = new L.LatLng(lat, lng);
-                editMarker.setLatLng(newLatLng);
-                editMap.setView(newLatLng, 18);
-                editMarker.bindPopup(`<b>Updated from GPS!</b><br>Accuracy: ~${Math.round(accuracy)}m`).openPopup();
-
-                const currentRadius = parseInt(document.getElementById('editAccountGeofence').value);
-                updateGeofenceCircle(lat, lng, currentRadius);
-            }
-
-            window.showToast("Pin moved to your location!");
-            btn.textContent = originalText;
-            btn.disabled = false;
-        },
-        (error) => {
-            console.error("Error getting location:", error);
-            alert("Could not get your location. Please allow GPS access.");
-            btn.textContent = originalText;
-            btn.disabled = false;
-        },
-        { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
-    );
-};
-
-window.openInactiveReasonModal = function(accountId, type, currentName) {
-    document.getElementById('inactiveReasonModal').style.display = 'flex';
-    document.getElementById('inactiveAccountId').value = accountId;
-    document.getElementById('actionType').value = type;
-    document.getElementById('otherReasonInput').value = '';
-    document.getElementById('otherReasonInput').style.display = 'none';
-    document.querySelectorAll('input[name="inactiveReason"]').forEach(radio => radio.checked = false);
-    document.getElementById('inactiveReasonTitle').textContent = `Mark ${currentName} Inactive`;
-    document.getElementById('btnConfirmInactive').textContent = 'Confirm Inactivation';
-};
-
-window.closeInactiveReasonModal = function() {
-    document.getElementById('inactiveReasonModal').style.display = 'none';
-};
-
-window.confirmInactiveAction = async function() {
-    const accountId = document.getElementById('inactiveAccountId').value;
-    const selectedReason = document.querySelector('input[name="inactiveReason"]:checked')?.value;
-    const otherReason = document.getElementById('otherReasonInput').value.trim();
-    if (!selectedReason) return alert("Please select a reason.");
-    if (selectedReason === 'Other' && !otherReason) return alert("Please specify the reason.");
-    const finalReason = selectedReason === 'Other' ? `Other: ${otherReason}` : selectedReason;
-    const btn = document.getElementById('btnConfirmInactive');
-    btn.disabled = true; btn.textContent = "Processing...";
-    try {
-        const endDate = new Date().toISOString().split('T')[0];
-        await db.collection('accounts').doc(accountId).update({ endDate: endDate, inactiveReason: finalReason });
-        window.showToast("Account moved to Inactive.");
-        closeInactiveReasonModal(); loadAccountsList();
-        if (typeof loadMap === 'function') loadMap();
-    } catch (e) { alert("Error: " + e.message); }
-    finally { btn.disabled = false; btn.textContent = 'Confirm Inactivation'; }
-};
-
-window.deleteAccount = async (id, name, isAlreadyInactive) => {
-    if (isAlreadyInactive) {
-        if(confirm(`PERMANENTLY DELETE ${name}?\n\nThis cannot be undone.`)) await performHardDelete(id);
+    // Hardcoded Super Admin (You)
+    if (user.email.toLowerCase() === ADMIN_EMAIL) {
+        isAuthorized = true;
     } else {
-        const choice = confirm(`You are removing ${name}.\n\n- Click OK to MARK INACTIVE (Recommended).\n- Click CANCEL to PERMANENTLY DELETE.`);
-        if (choice) openInactiveReasonModal(id, 'soft_delete', name);
-        else if(confirm(`Are you sure you want to permanently delete ${name}? All history will be lost.`)) await performHardDelete(id);
+        // Check Database Permission for others
+        const doc = await db.collection('users').doc(user.uid).get();
+        if (doc.exists && doc.data().isAdmin === true) {
+            isAuthorized = true;
+        }
+    }
+
+    if (!isAuthorized) {
+        alert("⛔ ACCESS DENIED: Authorized Personnel Only.");
+        window.location.href = 'index.html';
+        return;
+    }
+
+    // 2. Access Granted
+    document.getElementById('appLoading').style.display = 'none';
+    document.getElementById('adminApp').style.display = 'flex';
+
+    console.log("God Mode: Access Granted to", user.email);
+
+    // Default Load
+    loadGodModeData();
+    document.getElementById('addOwnerModal').style.display = 'none';
+});
+
+// --- NAVIGATION ---
+window.switchAdminTab = function(tabName) {
+    // Hide all views
+    document.querySelectorAll('.admin-view').forEach(el => el.style.display = 'none');
+    document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
+
+    // Show selected view
+    document.getElementById(`view-${tabName}`).style.display = 'block';
+    document.getElementById(`nav-${tabName}`).classList.add('active');
+
+    // Load data if needed
+    if (tabName === 'accounts') {
+        loadMasterAccounts();
     }
 };
 
-async function performHardDelete(id) {
-    try { await db.collection('accounts').doc(id).delete(); window.showToast("Account Permanently Deleted"); loadAccountsList(); if (typeof loadMap === 'function') loadMap(); } catch(e) { alert("Delete failed: " + e.message); }
-}
+// --- VIEW 1: FRANCHISE OWNERS ---
+async function loadGodModeData() {
+    const userList = document.getElementById('userList');
+    userList.innerHTML = '<div style="padding:20px; text-align:center;">Scanning Database...</div>';
 
-window.openSpecsModal = function(id, name, mode) {
-    document.getElementById('specsModal').style.display = 'flex';
-    document.getElementById('specsModalTitle').textContent = `Specs: ${name}`;
-    document.getElementById('currentSpecAccountId').value = id;
-    document.getElementById('newSpecName').value = '';
-    document.getElementById('newSpecUrl').value = '';
-    loadRealSpecs(id);
-    if (mode === 'add') setTimeout(() => document.getElementById('newSpecName').focus(), 100);
-};
-
-window.closeSpecsModal = function() { document.getElementById('specsModal').style.display = 'none'; };
-
-window.saveSpecLink = async function() {
-    const accountId = document.getElementById('currentSpecAccountId').value;
-    const name = document.getElementById('newSpecName').value.trim();
-    let url = document.getElementById('newSpecUrl').value.trim();
-    const btn = document.querySelector('.specs-upload-box button');
-    if (!name || !url) return alert("Please enter a document name and a valid URL link.");
-    if (!url.match(/^https?:\/\//i)) url = 'https://' + url;
     try {
-        btn.disabled = true; btn.textContent = "Saving...";
-        await db.collection('accounts').doc(accountId).collection('specs').add({
-            name: name, url: url, type: 'link', createdAt: firebase.firestore.FieldValue.serverTimestamp()
+        const [usersSnap, accountsSnap, empSnap] = await Promise.all([
+            db.collection('users').get(),
+            db.collection('accounts').get(),
+            db.collection('employees').get()
+        ]);
+
+        let totalRev = 0;
+        let ownerCount = 0;
+        allOwners = [];
+
+        usersSnap.forEach(doc => {
+            const data = doc.data();
+            if (data.role === 'owner') {
+                ownerCount++;
+                allOwners.push({ id: doc.id, ...data, accountCount: 0, revenue: 0 });
+            }
         });
-        window.showToast(`Saved Link: ${name}`);
-        document.getElementById('newSpecName').value = ''; document.getElementById('newSpecUrl').value = '';
-        loadRealSpecs(accountId);
-    } catch (error) { alert("Error: " + error.message); }
-    finally { btn.disabled = false; btn.textContent = "Save Document Link"; }
-};
 
-async function loadRealSpecs(accountId) {
-    const listDiv = document.getElementById('specsList');
-    listDiv.innerHTML = '<div class="empty-specs">Loading documents...</div>';
-    try {
-        const snap = await db.collection('accounts').doc(accountId).collection('specs').orderBy('createdAt', 'desc').get();
-        if (snap.empty) { listDiv.innerHTML = '<div class="empty-specs">No specifications added yet.<br>Paste a Google Drive or Dropbox link above.</div>'; return; }
+        accountsSnap.forEach(doc => {
+            const acc = doc.data();
+            const rev = parseFloat(acc.revenue) || 0;
+            totalRev += rev;
+            const owner = allOwners.find(o => o.email === acc.owner);
+            if (owner) {
+                owner.accountCount++;
+                owner.revenue += rev;
+            }
+        });
+
+        // Update Stats
+        document.getElementById('statOwners').textContent = ownerCount;
+        document.getElementById('statAccounts').textContent = accountsSnap.size;
+        document.getElementById('statRevenue').textContent = '$' + totalRev.toLocaleString();
+        document.getElementById('statEmployees').textContent = empSnap.size;
+
+        // Render List
         let html = '';
-        snap.forEach(doc => {
-            const spec = doc.data();
-            const dateStr = spec.createdAt ? new Date(spec.createdAt.toDate()).toLocaleDateString() : 'Just now';
-            html += `<div class="spec-item"><div class="spec-info"><div class="spec-icon">🔗</div><div><div class="spec-name">${spec.name}</div><div class="spec-meta"><a href="${spec.url}" target="_blank" style="color:#6b7280; text-decoration:none;">${spec.url.substring(0,30)}...</a> • ${dateStr}</div></div></div><div class="spec-actions"><a href="${spec.url}" target="_blank" class="btn-view-doc">Open Link</a><span class="btn-delete-doc" onclick="deleteSpec('${accountId}', '${doc.id}')" title="Delete">&times;</span></div></div>`;
+        allOwners.sort((a,b) => b.revenue - a.revenue);
+
+        const employeeCounts = {};
+        empSnap.forEach(doc => {
+            const ownerEmail = doc.data().owner;
+            employeeCounts[ownerEmail] = (employeeCounts[ownerEmail] || 0) + 1;
         });
-        listDiv.innerHTML = html;
-    } catch (error) { listDiv.innerHTML = '<div class="empty-specs" style="color:red">Error loading documents.</div>'; }
-}
 
-window.deleteSpec = async function(accountId, specId) {
-    if (!confirm("Remove this document link?")) return;
-    try { await db.collection('accounts').doc(accountId).collection('specs').doc(specId).delete(); window.showToast("Link removed"); loadRealSpecs(accountId); } catch (error) { alert("Error: " + error.message); }
-};
+        allOwners.forEach(u => {
+            const empCount = employeeCounts[u.email] || 0;
+            const isAdmin = u.isAdmin === true;
 
-window.reactivateAccount = async function(id) {
-    if(!confirm("Reactivate this account?")) return;
-    try { await db.collection('accounts').doc(id).update({ endDate: null, cancelReason: null, inactiveReason: null }); window.showToast("Account Reactivated!"); loadAccountsList(); } catch(e) { console.error(e); }
-};
+            // Visuals for Admin Button
+            const adminBtnStyle = isAdmin
+                ? 'background:#10b981; color:white; border:none;'
+                : 'background:#e5e7eb; color:#9ca3af; border:1px solid #d1d5db;';
+            const adminTitle = isAdmin ? 'Revoke Admin Access' : 'Grant Admin Access';
+            const adminIcon = isAdmin ? '🛡️ Admin' : '🛡️ Make Admin';
 
-window.showAddAccount = function() { document.getElementById('addAccountModal').style.display = 'flex'; }
-window.saveNewAccount = async () => {
-    const name = document.getElementById('accountName').value.trim();
-    const street = document.getElementById('accountStreet').value.trim();
-    const city = document.getElementById('accountCity').value.trim();
-    const state = document.getElementById('accountState').value.trim();
-    const zip = document.getElementById('accountZip').value.trim();
-    const startDate = document.getElementById('accountStartDate').value;
-    const revenue = Number(document.getElementById('accountRevenue').value);
+            html += `
+            <div class="user-row" style="${isAdmin ? 'border-left: 4px solid #10b981;' : ''}">
+                <div style="flex: 1;">
+                    <div style="font-weight: 700; font-size: 1.1rem; color: #111;">
+                        ${u.name || 'Unknown Name'}
+                        ${isAdmin ? '<span class="badge" style="background:#10b981; color:white; font-size:0.7rem;">ADMIN</span>' : '<span class="badge badge-owner">Owner</span>'}
+                    </div>
+                    <div style="font-size: 0.85rem; color: #666;">${u.email}</div>
+                    <div style="font-size: 0.75rem; color: #999; margin-top: 4px;">ID: ${u.id}</div>
+                    <div style="font-size: 0.75rem; color: #0d9488; font-weight:600;">Fran ID: ${u.franId || 'N/A'}</div>
+                </div>
+                <div style="text-align: right; padding-right: 20px;">
+                    <div style="font-weight: 700; color: #0d9488;">${u.accountCount} Accounts</div>
+                    <div style="font-size: 0.8rem; color: #444;">${empCount} Employees</div>
+                    <div style="font-size: 0.9rem; color: #444;">$${u.revenue.toLocaleString()}/mo</div>
+                </div>
+                <div>
+                    <button class="btn btn-sm" style="margin-right:5px; font-size:0.75rem; ${adminBtnStyle}"
+                        onclick="toggleAdminAccess('${u.id}', ${isAdmin}, '${u.name}')" title="${adminTitle}">
+                        ${adminIcon}
+                    </button>
 
-    if (!name || !street || !startDate) return alert('Name, Street, and Start Date required');
+                    <button class="btn btn-secondary" onclick="impersonateUser('${u.email}')">👁️ View Dashboard</button>
+                    <button class="btn btn-danger" style="margin-left:5px; font-size:0.7rem;" onclick="nukeUser('${u.id}', '${u.name}')">🗑️</button>
+                </div>
+            </div>`;
+        });
 
-    try {
-        const fullAddress = `${street}, ${city}, ${state} ${zip}`;
-
-        const baseUrl = "https://us1.locationiq.com/v1/search.php";
-        const params = new URLSearchParams({ key: window.LOCATIONIQ_KEY, street: street, city: city, state: state, postalcode: zip, format: 'json', limit: 1, countrycodes: 'us' });
-        const res = await fetch(`${baseUrl}?${params.toString()}`);
-        const data = await res.json();
-
-        const accountData = {
-            name, address: fullAddress, street, city, state, zip, revenue, startDate,
-            endDate: null, owner: window.currentUser.email,
-            createdAt: firebase.firestore.FieldValue.serverTimestamp()
-        };
-        if (data && data[0]) { accountData.lat = parseFloat(data[0].lat); accountData.lng = parseFloat(data[0].lon); }
-
-        await db.collection('accounts').add(accountData);
-        window.showToast('Account added!');
-        window.hideAddAccount();
-        loadAccountsList();
-        if (typeof loadMap === 'function') loadMap();
-    } catch (e) { alert('Error: ' + e.message); }
-};
-
-// Auto Fill PID
-async function runPidAutoFill() {
-    const pidInput = document.getElementById('accountPID');
-    const pidVal = pidInput.value.trim();
-    if (!pidVal) return alert("Please enter a PID first.");
-    const btn = document.getElementById('btnPidAutoFill');
-    const originalText = btn.innerHTML;
-    btn.disabled = true; btn.innerHTML = '🔍 Searching...';
-
-    try {
-        const snap = await db.collection('master_client_list').where('pid', '==', pidVal).limit(1).get();
-        if (snap.empty) {
-            const docRef = await db.collection('master_client_list').doc(pidVal).get();
-            if (docRef.exists) fillForm(docRef.data());
-            else alert(`No master record found for PID: ${pidVal}`);
-        } else {
-            fillForm(snap.docs[0].data());
+        userList.innerHTML = html;
+        if (!document.getElementById('addOwnerButton')) {
+            userList.insertAdjacentHTML('beforebegin', `<div style="text-align:right;"><button id="addOwnerButton" class="btn btn-primary" style="margin-bottom: 15px;" onclick="showAddOwnerModal()">+ Add New Franchise Owner</button></div>`);
         }
-    } catch (e) { console.error(e); alert("Error fetching data: " + e.message); }
-    finally { btn.disabled = false; btn.innerHTML = originalText; }
+
+    } catch (e) {
+        console.error(e);
+        userList.innerHTML = `<div style="color:red; padding:20px;">Error loading data: ${e.message}</div>`;
+    }
 }
 
-function fillForm(data) {
-    if(data.name) document.getElementById('accountName').value = data.name;
-    if(data.street) document.getElementById('accountStreet').value = data.street;
-    if(data.city) document.getElementById('accountCity').value = data.city;
-    if(data.state) document.getElementById('accountState').value = data.state;
-    if(data.zip) document.getElementById('accountZip').value = data.zip;
-    if(data.revenue) document.getElementById('accountRevenue').value = data.revenue;
-    if(data.startDate) document.getElementById('accountStartDate').value = data.startDate;
-    if(data.contactName) document.getElementById('contactName').value = data.contactName;
-    if(data.contactPhone) document.getElementById('contactPhone').value = data.contactPhone;
-    if(data.contactEmail) document.getElementById('contactEmail').value = data.contactEmail;
-    window.showToast(`✨ Auto-Filled: ${data.name}`);
+// --- NEW FUNCTION: TOGGLE ADMIN ---
+window.toggleAdminAccess = async function(uid, currentStatus, name) {
+    const action = currentStatus ? "REVOKE" : "GRANT";
+    if(!confirm(`Are you sure you want to ${action} Admin privileges for ${name}?\n\nThey will be able to access this God Mode panel.`)) return;
+
+    try {
+        await db.collection('users').doc(uid).update({
+            isAdmin: !currentStatus
+        });
+        alert(`Success: ${name} is ${!currentStatus ? 'now an Admin' : 'no longer an Admin'}.`);
+        loadGodModeData();
+    } catch(e) {
+        alert("Error updating permissions: " + e.message);
+    }
+};
+
+// --- VIEW 2: MASTER ACCOUNTS ---
+window.loadMasterAccounts = async function() {
+    const tbody = document.getElementById('masterAccountList');
+    if(allMasterAccounts.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="7" style="text-align:center; padding:2rem;">Fetching Master Database...</td></tr>';
+    }
+
+    try {
+        const snap = await db.collection('master_client_list').orderBy('pid').limit(1000).get();
+
+        allMasterAccounts = [];
+        snap.forEach(doc => {
+            allMasterAccounts.push({ id: doc.id, ...doc.data() });
+        });
+
+        renderMasterTable(allMasterAccounts);
+
+        document.getElementById('masterCountDisplay').textContent = `Showing ${allMasterAccounts.length} records`;
+
+    } catch (e) {
+        console.error("Error loading master list:", e);
+        tbody.innerHTML = `<tr><td colspan="7" style="color:red; text-align:center;">Error: ${e.message}</td></tr>`;
+    }
+};
+
+window.renderMasterTable = function(data) {
+    const tbody = document.getElementById('masterAccountList');
+    let html = '';
+
+    if (data.length === 0) {
+        html = '<tr><td colspan="7" style="text-align:center; padding:2rem; color:#888;">No records found.</td></tr>';
+    } else {
+        data.forEach(acc => {
+            const isActive = acc.status === 'Active';
+            const statusBadge = isActive
+                ? `<span class="badge badge-active">Active</span>`
+                : `<span class="badge badge-inactive">${acc.status || 'Inactive'}</span>`;
+
+            const revenue = typeof acc.revenue === 'number' ? acc.revenue : 0;
+
+            // Use JSON.stringify and then replace single quotes to handle data object passing
+            const safeAcc = JSON.stringify(acc).replace(/'/g, "\\'");
+
+            html += `
+            <tr>
+                <td><span style="font-family:monospace; background:#f3f4f6; padding:2px 6px; border-radius:4px;">${acc.pid}</span></td>
+                <td style="font-weight:600; color:#111;">${acc.name}</td>
+                <td style="font-size:0.9rem; color:#4b5563;">${acc.address || acc.street || ''}</td>
+                <td style="font-weight:600; color:#0d9488;">${acc.franId || '-'}</td>
+                <td style="text-align:right; font-family:monospace;">$${revenue.toLocaleString()}</td>
+                <td style="text-align:center;">${statusBadge}</td>
+                <td style="text-align:center;">
+                    <button class="btn-xs btn-edit" onclick='showEditMasterAccount(${safeAcc})'>Edit</button>
+                </td>
+            </tr>`;
+        });
+    }
+    tbody.innerHTML = html;
+};
+
+window.filterMasterAccounts = function() {
+    const term = document.getElementById('masterSearch').value.toLowerCase();
+
+    const filtered = allMasterAccounts.filter(acc => {
+        return (acc.pid && String(acc.pid).toLowerCase().includes(term)) ||
+               (acc.name && acc.name.toLowerCase().includes(term)) ||
+               (acc.address && acc.address.toLowerCase().includes(term)) ||
+               (acc.franId && acc.franId.toLowerCase().includes(term));
+    });
+
+    renderMasterTable(filtered);
+};
+
+// --- EXPOSED MASTER ACCOUNT CRUD FUNCTIONS ---
+
+window.showEditMasterAccount = function(acc) {
+    document.getElementById('editMasterId').value = acc.id;
+    document.getElementById('editMasterPidDisplay').textContent = acc.pid;
+    document.getElementById('editMasterName').value = acc.name || '';
+    document.getElementById('editMasterFranId').value = acc.franId || '';
+    document.getElementById('editMasterRevenue').value = acc.revenue || 0;
+    document.getElementById('editMasterStatus').value = acc.status || 'Active';
+    document.getElementById('editMasterStartDate').value = acc.startDate || '';
+
+    // Address fields
+    document.getElementById('editMasterStreet').value = acc.street || '';
+    document.getElementById('editMasterCity').value = acc.city || '';
+    document.getElementById('editMasterZip').value = acc.zip || '';
+
+    document.getElementById('editMasterAccountModal').style.display = 'flex';
+};
+
+window.saveEditedMasterAccount = async function(event) {
+    const btn = event.target;
+    btn.disabled = true; btn.textContent = 'Saving...';
+
+    const masterId = document.getElementById('editMasterId').value;
+    const oldAcc = allMasterAccounts.find(a => a.id === masterId);
+
+    const newFranId = document.getElementById('editMasterFranId').value.trim();
+    const newRevenue = parseFloat(document.getElementById('editMasterRevenue').value) || 0;
+    const newStreet = document.getElementById('editMasterStreet').value.trim();
+    const newCity = document.getElementById('editMasterCity').value.trim();
+    const newZip = document.getElementById('editMasterZip').value.trim();
+
+    // Assume state is PA if not explicitly managed in this modal
+    const stateFallback = oldAcc.state || 'PA';
+    const newAddress = `${newStreet}, ${newCity}, ${stateFallback} ${newZip}`;
+
+    const updateData = {
+        name: document.getElementById('editMasterName').value.trim(),
+        franId: newFranId,
+        revenue: newRevenue,
+        status: document.getElementById('editMasterStatus').value,
+        startDate: document.getElementById('editMasterStartDate').value,
+
+        // Split Address (always update)
+        street: newStreet,
+        city: newCity,
+        zip: newZip,
+        address: newAddress, // Full address string
+
+        lastUpdated: firebase.firestore.FieldValue.serverTimestamp()
+    };
+
+    let needsGeoUpdate = false;
+
+    // 1. Check if address changed to trigger geocoding/full address update
+    if (newAddress !== (oldAcc.address || '')) {
+         needsGeoUpdate = true;
+         window.showToast("Address changed. Geocoding new location...");
+    }
+
+    // 2. Perform Geocoding if needed
+    if (needsGeoUpdate) {
+        try {
+            const baseUrl = "https://us1.locationiq.com/v1/search.php";
+            const params = new URLSearchParams({
+                key: window.LOCATIONIQ_KEY, // Assumes LOCATIONIQ_KEY is exposed via utils.js
+                street: newStreet,
+                city: newCity,
+                state: stateFallback,
+                postalcode: newZip,
+                format: 'json',
+                limit: 1,
+                countrycodes: 'us'
+            });
+
+            const res = await fetch(`${baseUrl}?${params.toString()}`);
+            const data = await res.json();
+
+            if (data && data[0]) {
+                updateData.lat = parseFloat(data[0].lat);
+                updateData.lng = parseFloat(data[0].lon);
+                window.showToast("Geocode success! Pin location updated.");
+            } else {
+                window.showToast("Warning: Geocoding failed for new address. Pin location remains unchanged.", 'warn');
+            }
+        } catch (geoErr) {
+            console.error("Geocoding failed:", geoErr);
+            window.showToast("Error during geocoding. Pin location remains unchanged.", 'error');
+        }
+    }
+
+    // 3. Save Master Account
+    await db.collection('master_client_list').doc(masterId).update(updateData);
+    window.showToast('Master Account Saved!');
+
+    // 4. Synchronize Downstream (Franchisee Accounts)
+    const franchiseeAccSnap = await db.collection('accounts')
+        .where('pid', '==', oldAcc.pid)
+        .get();
+
+    if (!franchiseeAccSnap.empty) {
+        const batch = db.batch();
+        const syncUpdate = {
+            name: updateData.name,
+            revenue: updateData.revenue,
+            status: updateData.status,
+            startDate: updateData.startDate,
+
+            // Sync address and geo data
+            address: updateData.address,
+            street: updateData.street,
+            city: updateData.city,
+            zip: updateData.zip,
+            lat: updateData.lat || null,
+            lng: updateData.lng || null
+        };
+
+        let linkOwnerEmail = null;
+        if (newFranId !== (oldAcc.franId || '')) {
+            // Find the owner email corresponding to the new Fran ID
+            const owner = allOwners.find(o => o.franId === newFranId);
+            if (owner) {
+                linkOwnerEmail = owner.email;
+            }
+        }
+
+        franchiseeAccSnap.forEach(doc => {
+            const docRef = doc.ref;
+            const currentOwner = doc.data().owner;
+
+            // Decide whether to update the owner email in the franchisee account
+            const ownerUpdate = (linkOwnerEmail && linkOwnerEmail !== currentOwner)
+                ? { owner: linkOwnerEmail }
+                : {};
+
+            batch.update(docRef, { ...syncUpdate, ...ownerUpdate });
+        });
+
+        await batch.commit();
+        window.showToast(`Synced changes to ${franchiseeAccSnap.size} Franchisee Accounts.`, 'success');
+    }
+
+    // 5. Reload UI
+    document.getElementById('editMasterAccountModal').style.display = 'none';
+    loadMasterAccounts();
+    loadGodModeData(); // Update system stats/owner list
+
+    btn.disabled = false;
+    btn.textContent = 'Save Master Changes';
+};
+
+
+// --- MODAL FUNCTIONS (Keep existing) ---
+window.showAddOwnerModal = function() {
+    document.getElementById('ownerName').value = '';
+    document.getElementById('ownerEmail').value = '';
+    document.getElementById('addOwnerModal').style.display = 'flex';
+};
+
+window.closeAddOwnerModal = function() { document.getElementById('addOwnerModal').style.display = 'none'; };
+
+window.saveNewOwner = async function() {
+    const name = document.getElementById('ownerName').value.trim();
+    const rawEmail = document.getElementById('ownerEmail').value;
+
+    // Aggressive clean
+    const email = rawEmail.toLowerCase().replace(/[^a-z0-9@._-]/g, '');
+    const password = "password";
+
+    if (!name || !email) return alert("Owner Name and Email are required.");
+
+    const btn = document.querySelector('#addOwnerModal .btn-primary');
+    btn.disabled = true;
+    btn.textContent = "Creating...";
+
+    let secondaryApp;
+    let authUser = null;
+
+    try {
+        secondaryApp = firebase.initializeApp(window.firebaseConfig, "OwnerCreation");
+        const userCredential = await secondaryApp.auth().createUserWithEmailAndPassword(email, password);
+        authUser = userCredential.user;
+
+        await createOwnerDocument(authUser.uid, email, name);
+
+        alert(`Successfully created Owner: ${name}. Login: ${email} / "password"`);
+        closeAddOwnerModal();
+        loadGodModeData();
+
+    } catch (e) {
+        if(e.code === 'auth/email-already-in-use') {
+            alert(`Error: The email ${email} already exists in Firebase Auth.\n\nYou must delete this user from the Firebase Console > Authentication tab before you can recreate them with the "password" default.`);
+        } else {
+            alert("Error creating user: " + e.message);
+        }
+    } finally {
+        if (secondaryApp) secondaryApp.delete();
+        btn.disabled = false;
+        btn.textContent = "Create Owner";
+    }
+};
+
+window.importOwnersFromCSV = function() {
+    const file = document.getElementById('ownersCsvUpload').files[0];
+    if(!file) return alert("Please select a CSV file first.");
+
+    const btn = document.getElementById('btnImportOwners');
+    const statusEl = document.getElementById('importOwnerStatus');
+
+    btn.disabled = true;
+    btn.textContent = "Processing File...";
+    statusEl.innerHTML = '';
+
+    if (typeof Papa === 'undefined') return statusEl.innerHTML = '<span style="color:red;">Error: PapaParse not loaded.</span>';
+
+    Papa.parse(file, {
+        header: true,
+        skipEmptyLines: true,
+        transformHeader: h => h.trim().replace(/[^a-zA-Z0-9]/g, ''),
+        complete: function(results) { uploadNewOwners(results.data, btn, statusEl); },
+        error: function(err) {
+            alert("CSV Parsing Error: " + err.message);
+            btn.disabled = false;
+            btn.textContent = "🚀 Start Bulk Import and Account Creation";
+        }
+    });
+};
+
+async function uploadNewOwners(data, btn, statusEl) {
+    let createdCount = 0;
+    let failedCount = 0;
+    let secondaryApp = null;
+    const INITIAL_PASSWORD = "password";
+
+    try {
+        if (typeof window.firebaseConfig === 'undefined') throw new Error("Firebase config not available.");
+        secondaryApp = firebase.initializeApp(window.firebaseConfig, "OwnerBulkCreation");
+    } catch (e) {
+        statusEl.innerHTML = `<span style="color:red;">FATAL ERROR: Could not initialize Auth app: ${e.message}</span>`;
+        if (secondaryApp) secondaryApp.delete();
+        btn.disabled = false;
+        btn.textContent = "🚀 Start Bulk Import";
+        return;
+    }
+
+    statusEl.innerHTML = `Starting import of ${data.length} records...`;
+    console.group("Bulk Import Log");
+
+    for (let i = 0; i < data.length; i++) {
+        const row = data[i];
+
+        // 1. Read Data
+        const rawName = row['ContactName']?.trim() || row['CompanyName']?.trim();
+        const rawEmail = row['ContactEmail']?.trim() || row['Contactemail']?.trim();
+        const franId = row['FranID']?.trim();
+
+        if (!rawEmail || !rawName) {
+            statusEl.innerHTML += `<div style="color:#f59e0b;">Skipping row ${i+1}: Missing Email or Name.</div>`;
+            failedCount++;
+            continue;
+        }
+
+        // 2. Clean Data
+        const email = rawEmail.toLowerCase().replace(/[^a-z0-9@._-]/g, '');
+        const name = rawName;
+
+        try {
+            // 3. Create Auth User
+            statusEl.innerHTML = `Creating ${name}...`;
+            const userCredential = await secondaryApp.auth().createUserWithEmailAndPassword(email, INITIAL_PASSWORD);
+            const uid = userCredential.user.uid;
+
+            // 4. Create Firestore User Document
+            const fullAddress = `${row.Address || ''} ${row.City || ''} ${row.State || ''} ${row.Zip || ''}`.trim();
+            const cfiValue = parseFloat(row['CFee']) || 0;
+
+            const ownerData = {
+                email: email,
+                name: name,
+                role: 'owner',
+                createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+                companyName: row['CompanyName'] || name,
+                address: fullAddress,
+                contactPhone: row['ContactPhone'] || '',
+                cfi: cfiValue,
+                purchaseDate: row['PurchaseDate'] || '',
+                tempPassword: INITIAL_PASSWORD,
+                franId: franId || ''
+            };
+
+            await db.collection('users').doc(uid).set(ownerData, { merge: true });
+            statusEl.innerHTML = `<div style="color:#0d9488;">✅ Created: ${name}</div>`;
+            console.log(`CREATED: ${email} | Password: ${INITIAL_PASSWORD}`);
+
+            // 5. AUTOMATICALLY LINK ACCOUNTS (If FranID exists)
+            if (franId) {
+                statusEl.innerHTML += `<div style="font-size:0.85rem; margin-left:15px; color:#4b5563;">🔎 Searching for client accounts with FranID: ${franId}...</div>`;
+
+                const linkedSnap = await db.collection('master_client_list').where('franId', '==', franId).get();
+
+                if (!linkedSnap.empty) {
+                    const batch = db.batch();
+                    let linkCount = 0;
+
+                    linkedSnap.forEach(clientDoc => {
+                        const client = clientDoc.data();
+                        const accRef = db.collection('accounts').doc(`ACC_${client.pid}`);
+
+                        let street = client.street || '';
+                        let city = client.city || '';
+                        let state = client.state || '';
+                        let zip = client.zip || '';
+
+                        if (!street && client.address) {
+                            const parts = client.address.split(',').map(s => s.trim());
+                            if(parts.length >= 3) {
+                                street = parts[0];
+                                city = parts[1];
+                                if(parts[2].match(/\d{5}/)) zip = parts[2].match(/\d{5}/)[0];
+                            }
+                        }
+
+                        const newAccountData = {
+                            pid: client.pid,
+                            name: client.name || 'Unknown',
+                            address: client.address || '',
+                            street: street,
+                            city: city,
+                            state: state,
+                            zip: zip,
+                            revenue: client.revenue || 0,
+                            owner: email,
+                            status: 'Active',
+                            createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+                            startDate: new Date().toISOString().split('T')[0],
+                            contactName: client.contactName || '',
+                            contactPhone: client.contactPhone || '',
+                            contactEmail: client.contactEmail || '',
+                            lat: client.lat || null,
+                            lng: client.lng || null
+                        };
+
+                        batch.set(accRef, newAccountData, { merge: true });
+                        linkCount++;
+                    });
+
+                    await batch.commit();
+                    statusEl.innerHTML += `<div style="font-size:0.85rem; margin-left:15px; color:#0d9488; font-weight:bold;">↳ Linked ${linkCount} accounts!</div>`;
+                } else {
+                    statusEl.innerHTML += `<div style="font-size:0.85rem; margin-left:15px; color:#9ca3af;">↳ No matching clients found in Master List.</div>`;
+                }
+            }
+
+            createdCount++;
+
+        } catch (e) {
+            if(e.code === 'auth/email-already-in-use') {
+                 statusEl.innerHTML += `<div style="color:#ef4444; font-weight:bold;">⚠️ EXISTING AUTH: ${email} already exists. Delete in Firebase Console to reset.</div>`;
+            } else {
+                 statusEl.innerHTML += `<div style="color:#ef4444;">❌ Failed: ${name} (${email}) - ${e.message}</div>`;
+            }
+            failedCount++;
+        }
+    }
+
+    console.groupEnd();
+    if (secondaryApp) secondaryApp.delete();
+
+    statusEl.innerHTML += `<hr><strong>Finished: ${createdCount} new, ${failedCount} skipped/failed.</strong>`;
+    alert(`Import Complete! Check status log for details.`);
+
+    loadGodModeData();
+    btn.disabled = false;
+    btn.textContent = "🚀 Start Bulk Import and Account Creation";
 }
 
-document.addEventListener('DOMContentLoaded', () => {
-    const btn = document.getElementById('btnPidAutoFill');
-    if(btn) btn.addEventListener('click', runPidAutoFill);
-});
+// --- ACTIONS ---
+window.impersonateUser = function(email) {
+    window.location.href = `index.html?viewAs=${encodeURIComponent(email)}`;
+};
+
+window.nukeUser = async function(uid, name) {
+    if(!confirm(`⚠️ DANGER: Are you sure you want to DELETE ${name}'s document?\n\nThis leaves the login (Auth) record orphaned and must be manually deleted.`)) return;
+    if (prompt(`Type "DELETE" to confirm destroying ${name}'s Firestore document.`) !== "DELETE") return;
+
+    try {
+        await db.collection('users').doc(uid).delete();
+        alert("User document deleted. NOW GO TO FIREBASE CONSOLE > AUTHENTICATION AND DELETE THE LOGIN.");
+        loadGodModeData();
+    } catch(e) { alert("Error: " + e.message); }
+};
+
+window.filterUsers = function() {
+    const term = document.getElementById('userSearch').value.toLowerCase();
+    document.querySelectorAll('.user-row').forEach(row => {
+        row.style.display = row.innerText.toLowerCase().includes(term) ? 'flex' : 'none';
+    });
+};
