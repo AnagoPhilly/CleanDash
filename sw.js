@@ -1,13 +1,13 @@
-// sw.js - Service Worker (Crash Proof Version)
+// sw.js - GitHub Pages Compatible
 
 const CACHE_NAME = 'cleandash-v1';
 
-// ⚠️ I removed '/icons/icon-192.png' to stop the crash
+// ⚠️ Note: Removed the leading "/" from filenames
 const ASSETS_TO_CACHE = [
-  '/',
-  '/index.html',
-  '/style.css',
-  '/manifest.json'
+  './',
+  'index.html',
+  'style.css',
+  'manifest.json'
 ];
 
 // Install Event
