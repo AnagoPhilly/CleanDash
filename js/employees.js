@@ -125,12 +125,19 @@ window.saveEmployee = async function() {
     const id = document.getElementById('empId').value;
     const name = document.getElementById('empName').value.trim();
     const role = document.getElementById('empRole').value;
-    const email = document.getElementById('empEmail').value.trim();
+
+    // --- FIX START: Force email to lowercase ---
+    // This ensures consistency with auth.js which forces lowercase on login
+    const email = document.getElementById('empEmail').value.trim().toLowerCase();
+
+
     const phone = document.getElementById('empPhone').value.trim();
     const wage = parseFloat(document.getElementById('empWage').value) || 0;
     const status = document.getElementById('empStatus').value;
     const address = document.getElementById('empAddress').value.trim();
-    const color = document.getElementById('empColor').value; // Get from hidden input
+    const color = document.getElementById('empColor').value;
+
+    const password = document.getElementById('empPassword').value.trim();
 
     if (!name || !email) return alert("Name and Email are required.");
 
@@ -138,16 +145,30 @@ window.saveEmployee = async function() {
     btn.disabled = true; btn.textContent = "Processing...";
 
     const data = {
-        name, role, email, phone, wage, status, address, color, // Save Color
+        name, role, email, phone, wage, status, address, color,
         owner: window.currentUser.email
     };
 
+
     try {
         if (id) {
+            // Update existing
             await db.collection('employees').doc(id).update(data);
+
+             if (password) {
+
+             }
+
             window.showToast("Employee updated");
         } else {
             data.createdAt = firebase.firestore.FieldValue.serverTimestamp();
+
+            if(password) {
+                 const secondaryApp = firebase.initializeApp(window.firebaseConfig, "Secondary");
+                 await secondaryApp.auth().createUserWithEmailAndPassword(email, password);
+                 secondaryApp.delete(); // Cleanup
+            }
+
             await db.collection('employees').add(data);
             window.showToast("Team member added");
         }
@@ -157,6 +178,28 @@ window.saveEmployee = async function() {
         alert("Error: " + e.message);
     } finally {
         btn.disabled = false; btn.textContent = "Save Member";
+    }
+};
+
+window.deleteEmployee = async function(id, name, status) {
+    // 1. Safety Check
+    if (!confirm(`Are you sure you want to permanently delete ${name}?\n\nThis will remove them from the schedule and payroll history.`)) {
+        return;
+    }
+
+    try {
+        // 2. Delete from Firestore
+        await db.collection('employees').doc(id).delete();
+
+        // 3. UI Feedback
+        window.showToast("Team member deleted.");
+
+        // 4. Reload Table
+        loadEmployees();
+
+    } catch (e) {
+        console.error("Delete Error:", e);
+        alert("Error deleting: " + e.message);
     }
 };
 
