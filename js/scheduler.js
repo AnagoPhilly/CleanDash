@@ -1,7 +1,7 @@
 // js/scheduler.js
 
 // --- 1. CONFIGURATION ---
-const START_HOUR = 8; // Start at 4 PM (Afternoon)
+const START_HOUR = 1; // Start at 12 PM (Noon)
 const HOURS_TO_RENDER = 30;
 const PIXELS_PER_HOUR = 60;
 const SNAP_MINUTES = 15;

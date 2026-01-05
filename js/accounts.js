@@ -38,9 +38,10 @@ window.loadAccountsList = function() {
   const inactiveDiv = document.getElementById('inactiveAccountsList');
   if(activeDiv) activeDiv.innerHTML = '<div style="text-align:center; padding:2rem; color:#888;">Loading Accounts...</div>';
 
+  // 1. QUERY WITHOUT ORDERBY
   const q = db.collection('accounts').where('owner', '==', window.currentUser.email);
 
-  q.orderBy('createdAt', 'desc').get().then(snap => {
+  q.get().then(snap => {
 
     if (snap.empty) {
       if(activeDiv) activeDiv.innerHTML = '<div style="text-align:center; padding:3rem; color:#6b7280;">No accounts yet — click "+ Add Account"</div>';
@@ -54,13 +55,22 @@ window.loadAccountsList = function() {
     let activeRows = '', inactiveRows = '', hasActive = false, hasInactive = false;
     const today = new Date().toISOString().split('T')[0];
 
-    snap.forEach(doc => {
+    // 2. SORT MANUALLY (Newest First)
+    const sortedDocs = snap.docs.sort((a, b) => {
+        const dateA = a.data().createdAt ? a.data().createdAt.toMillis() : 0;
+        const dateB = b.data().createdAt ? b.data().createdAt.toMillis() : 0;
+        return dateB - dateA; 
+    });
+
+    sortedDocs.forEach(doc => {
       const a = doc.data();
       const safeName = (a.name || '').replace(/'/g, "\\'");
       const safeAlarm = (a.alarmCode || '').replace(/'/g, "\\'");
-      const isInactive = a.endDate && a.endDate <= today;
+      
+      // *** THE FIX: Check Status OR Date ***
+      // If status is explicitly 'Inactive' OR the End Date has passed, treat as inactive.
+      const isInactive = (a.status === 'Inactive') || (a.endDate && a.endDate <= today);
 
-      // Handle Service Days (Array -> String for passing to function)
       const serviceDays = (a.serviceDays || []).join(',');
 
       if (!isInactive) {
@@ -85,7 +95,7 @@ window.loadAccountsList = function() {
           inactiveRows += `<tr>
             <td><div style="font-weight:600; color:#4b5563;">${a.name}</div><div style="font-size:0.8rem;">${a.address}</div></td>
             <td style="color:#ef4444; font-weight:500;">${a.cancelReason || a.inactiveReason || 'Unknown'}</td>
-            <td style="text-align:right; font-family:monospace;">${a.endDate}</td>
+            <td style="text-align:right; font-family:monospace;">${a.endDate || 'N/A'}</td>
             <td style="text-align:center;">
                 <button onclick="reactivateAccount('${doc.id}')" class="btn-xs" style="border:1px solid #10b981; color:#10b981;">Reactivate</button>
                 <button onclick="deleteAccount('${doc.id}', '${safeName}', true)" class="btn-xs btn-delete">Delete</button>
@@ -113,7 +123,7 @@ window.showEditAccount = function(id, name, alarm, geofence, lat, lng, daysStr) 
   if(alarmEl) alarmEl.value = alarm || '';
   if(geoEl) geoEl.value = geofence || 200;
 
-  // --- NEW: POPULATE DAY CHIPS ---
+  // --- POPULATE DAY CHIPS ---
   const days = daysStr ? daysStr.split(',') : [];
   const chips = document.querySelectorAll('#editServiceDaysContainer .day-chip');
   chips.forEach(chip => {
@@ -125,9 +135,9 @@ window.showEditAccount = function(id, name, alarm, geofence, lat, lng, daysStr) 
   document.getElementById('editAccountModal').style.display = 'flex';
 
   // --- MAP LOGIC ---
-  const ADMIN_EMAIL = 'nate@anagophilly.com';
-  const SYSTEM_ADMIN_EMAIL = 'admin@cleandash.com';
-  const isAdmin = (window.currentUser.email === ADMIN_EMAIL || window.currentUser.email === SYSTEM_ADMIN_EMAIL);
+  
+  // *** THE FIX: Check the 'isRealAdmin' flag from auth.js instead of the email ***
+  const isAdmin = window.currentUser.isRealAdmin === true;
 
   const helpText = document.getElementById('pinHelpText');
   if (helpText) {
@@ -145,6 +155,8 @@ window.showEditAccount = function(id, name, alarm, geofence, lat, lng, daysStr) 
           if(mapEl) {
             editMap = L.map('editAccountMap').setView([startLat, startLng], zoom);
             L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 21 }).addTo(editMap);
+            
+            // Initialize Marker with Draggable Status based on isAdmin
             editMarker = L.marker([startLat, startLng], { draggable: isAdmin }).addTo(editMap);
 
             editMarker.on('dragend', function(e) {
@@ -156,7 +168,11 @@ window.showEditAccount = function(id, name, alarm, geofence, lat, lng, daysStr) 
       } else {
           editMap.setView([startLat, startLng], zoom);
           editMarker.setLatLng([startLat, startLng]);
-          if (editMarker.dragging) isAdmin ? editMarker.dragging.enable() : editMarker.dragging.disable();
+          
+          // Toggle Dragging if map already existed
+          if (editMarker.dragging) {
+              isAdmin ? editMarker.dragging.enable() : editMarker.dragging.disable();
+          }
       }
 
       if (editMap) {

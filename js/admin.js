@@ -2,7 +2,8 @@
 
 const ADMIN_EMAIL = 'nate@anagophilly.com';
 let allMasterAccounts = []; // Cache for search
-let allOwners = []; // Cache owners for syncing
+let allOwners = [];
+let allAdmins = [];
 
 // Add global function to create a user document
 window.createOwnerDocument = async function(uid, email, name) {
@@ -49,169 +50,152 @@ auth.onAuthStateChanged(async user => {
 
     console.log("God Mode: Access Granted to", user.email);
 
+    // --- SHOW EXIT BUTTON ONLY FOR SUPER ADMIN ---
+    if (user.email.toLowerCase() === ADMIN_EMAIL) {
+        const exitBtn = document.getElementById('navExitDashboard');
+        if (exitBtn) exitBtn.style.display = 'block';
+    }
+
     // Default Load
     loadGodModeData();
     document.getElementById('addOwnerModal').style.display = 'none';
 });
 
 // --- NAVIGATION ---
-window.switchAdminTab = function(tabName) {
-    // Hide all views
-    document.querySelectorAll('.admin-view').forEach(el => el.style.display = 'none');
-    document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
+// --- TAB SWITCHING LOGIC ---
+window.switchAdminTab = function(tab) {
+    // 1. UPDATE THIS LIST: Add 'import' so the code knows to un-highlight it later
+    const allTabs = ['users', 'admins', 'accounts', 'import'];
 
-    // Show selected view
-    document.getElementById(`view-${tabName}`).style.display = 'block';
-    document.getElementById(`nav-${tabName}`).classList.add('active');
+    // 2. Loop through all to hide them
+    allTabs.forEach(t => {
+        const navEl = document.getElementById(`nav-${t}`);
+        const viewEl = document.getElementById(`view-${t}`);
 
-    // Load data if needed
-    if (tabName === 'accounts') {
+        if (navEl) navEl.classList.remove('active'); // Turn off green highlight
+        if (viewEl) viewEl.style.display = 'none';   // Hide the page content
+    });
+
+    // 3. Activate the specific one clicked
+    const activeNav = document.getElementById(`nav-${tab}`);
+    const activeView = document.getElementById(`view-${tab}`);
+
+    if (activeNav) activeNav.classList.add('active'); // Turn on green highlight
+    if (activeView) activeView.style.display = 'block'; // Show content
+
+    // 4. Trigger Data Load if needed
+    if (tab === 'accounts') {
         loadMasterAccounts();
     }
 };
 
-// --- VIEW 1: FRANCHISE OWNERS ---
+// --- VIEW 1: FRANCHISE OWNERS & DATA LOADER ---
+
 async function loadGodModeData() {
-    const userList = document.getElementById('userList');
-    userList.innerHTML = '<div style="padding:20px; text-align:center;">Scanning Database...</div>';
+    const ownerListEl = document.getElementById('userList');
+
+    // Set loading state
+    ownerListEl.innerHTML = '<div style="padding:20px;">Scanning...</div>';
 
     try {
+        // Fetch all necessary collections in parallel
         const [usersSnap, accountsSnap, empSnap] = await Promise.all([
             db.collection('users').get(),
             db.collection('accounts').get(),
             db.collection('employees').get()
         ]);
 
+        // Reset Arrays
+        allOwners = [];
+        allAdmins = [];
         let totalRev = 0;
         let ownerCount = 0;
-        allOwners = [];
 
+        // --- A. SORT USERS INTO LISTS ---
         usersSnap.forEach(doc => {
             const data = doc.data();
+            const uid = doc.id;
+
+            // 1. Identify Owners (Role check)
             if (data.role === 'owner') {
+                allOwners.push({ id: uid, ...data, accountCount: 0, revenue: 0 });
                 ownerCount++;
-                allOwners.push({ id: doc.id, ...data, accountCount: 0, revenue: 0 });
+            }
+
+            // 2. Identify Admins (Role check OR legacy isAdmin flag)
+            else if (data.role === 'admin' || data.isAdmin === true) {
+                allAdmins.push({ id: uid, ...data });
             }
         });
+
+        // --- B. CALCULATE OWNER REVENUE ---
+        const today = new Date();
+        today.setHours(0,0,0,0);
 
         accountsSnap.forEach(doc => {
             const acc = doc.data();
-            const rev = parseFloat(acc.revenue) || 0;
-            totalRev += rev;
-            const owner = allOwners.find(o => o.email === acc.owner);
-            if (owner) {
-                owner.accountCount++;
-                owner.revenue += rev;
+            const end = acc.endDate ? new Date(acc.endDate) : null;
+            const isExplicitlyInactive = (acc.status === 'Inactive');
+            const isExpired = (end && end < today);
+
+            // Only count Active accounts
+            if (!isExplicitlyInactive && !isExpired) {
+                const rev = parseFloat(acc.revenue) || 0;
+                const owner = allOwners.find(o => o.email === acc.owner);
+                if (owner) {
+                    owner.accountCount++;
+                    owner.revenue += rev;
+                    totalRev += rev;
+                }
             }
         });
 
-        // Update Stats
-        document.getElementById('statOwners').textContent = ownerCount;
-        document.getElementById('statAccounts').textContent = accountsSnap.size;
-        document.getElementById('statRevenue').textContent = '$' + totalRev.toLocaleString();
-        document.getElementById('statEmployees').textContent = empSnap.size;
+        // --- C. UPDATE KPI CARDS ---
+        if(document.getElementById('statOwners')) document.getElementById('statOwners').textContent = ownerCount;
 
-        // Render List
-        let html = '';
-        allOwners.sort((a,b) => b.revenue - a.revenue);
+        const totalActiveAccounts = allOwners.reduce((sum, owner) => sum + owner.accountCount, 0);
+        if(document.getElementById('statAccounts')) document.getElementById('statAccounts').textContent = totalActiveAccounts;
 
-        const employeeCounts = {};
-        empSnap.forEach(doc => {
-            const ownerEmail = doc.data().owner;
-            employeeCounts[ownerEmail] = (employeeCounts[ownerEmail] || 0) + 1;
-        });
+        if(document.getElementById('statRevenue')) document.getElementById('statRevenue').textContent = '$' + totalRev.toLocaleString();
+        if(document.getElementById('statEmployees')) document.getElementById('statEmployees').textContent = empSnap.size;
+
+        // --- D. RENDER FRANCHISE OWNERS LIST ---
+        let ownerHtml = '';
+        allOwners.sort((a,b) => b.revenue - a.revenue); // Sort by highest revenue
 
         allOwners.forEach(u => {
-            const empCount = employeeCounts[u.email] || 0;
-            const isAdmin = u.isAdmin === true;
-
-            // Visuals for Admin Button
-            const adminBtnStyle = isAdmin
-                ? 'background:#10b981; color:white; border:none;'
-                : 'background:#e5e7eb; color:#9ca3af; border:1px solid #d1d5db;';
-            const adminTitle = isAdmin ? 'Revoke Admin Access' : 'Grant Admin Access';
-            const adminIcon = isAdmin ? '🛡️ Admin' : '🛡️ Make Admin';
-
-            html += `
-            <div class="user-row" style="${isAdmin ? 'border-left: 4px solid #10b981;' : ''}">
+            ownerHtml += `
+            <div class="user-row">
                 <div style="flex: 1;">
-                    <div style="font-weight: 700; font-size: 1.1rem; color: #111;">
-                        ${u.name || 'Unknown Name'}
-                        ${isAdmin ? '<span class="badge" style="background:#10b981; color:white; font-size:0.7rem;">ADMIN</span>' : '<span class="badge badge-owner">Owner</span>'}
-                    </div>
+                    <div style="font-weight: 700; font-size: 1.1rem; color: #111;">${u.name}</div>
                     <div style="font-size: 0.85rem; color: #666;">${u.email}</div>
-                    <div style="font-size: 0.75rem; color: #999; margin-top: 4px;">ID: ${u.id}</div>
                     <div style="font-size: 0.75rem; color: #0d9488; font-weight:600;">Fran ID: ${u.franId || 'N/A'}</div>
                 </div>
                 <div style="text-align: right; padding-right: 20px;">
                     <div style="font-weight: 700; color: #0d9488;">${u.accountCount} Accounts</div>
-                    <div style="font-size: 0.8rem; color: #444;">${empCount} Employees</div>
                     <div style="font-size: 0.9rem; color: #444;">$${u.revenue.toLocaleString()}/mo</div>
                 </div>
                 <div>
-                    <button class="btn btn-sm" style="margin-right:5px; font-size:0.75rem; ${adminBtnStyle}"
-                        onclick="toggleAdminAccess('${u.id}', ${isAdmin}, '${u.name}')" title="${adminTitle}">
-                        ${adminIcon}
-                    </button>
-
-                    <button class="btn btn-secondary" onclick="impersonateUser('${u.email}', '${u.id}')">👁️ View Dashboard</button>
-
-                    <button class="btn btn-danger" style="margin-left:5px; font-size:0.7rem;" onclick="nukeUser('${u.id}', '${u.name}')">🗑️</button>
+                    <button class="btn btn-secondary" onclick="impersonateUser('${u.email}', '${u.id}')"> View Dashboard</button>
+                    <button class="btn btn-danger" style="margin-left:5px;" onclick="nukeUser('${u.id}', '${u.name}')">🗑️</button>
                 </div>
             </div>`;
         });
+        ownerListEl.innerHTML = ownerHtml || '<div style="padding:20px;">No Franchise Owners found.</div>';
 
-        userList.innerHTML = html;
-        if (!document.getElementById('addOwnerButton')) {
-            userList.insertAdjacentHTML('beforebegin', `<div style="text-align:right;"><button id="addOwnerButton" class="btn btn-primary" style="margin-bottom: 15px;" onclick="showAddOwnerModal()">+ Add New Franchise Owner</button></div>`);
+        // --- E. RENDER ADMIN LIST ---
+        renderAdmins();
+
+        // --- NEW: AUTO-LOAD ACCOUNTS IF TAB IS OPEN ---
+        if (document.getElementById('view-accounts').style.display !== 'none') {
+            loadMasterAccounts();
         }
 
     } catch (e) {
         console.error(e);
-        userList.innerHTML = `<div style="color:red; padding:20px;">Error loading data: ${e.message}</div>`;
+        ownerListEl.innerHTML = `<div style="color:red; padding:20px;">Error: ${e.message}</div>`;
     }
 }
-
-// --- NEW FUNCTION: TOGGLE ADMIN ---
-window.toggleAdminAccess = async function(uid, currentStatus, name) {
-    const action = currentStatus ? "REVOKE" : "GRANT";
-    if(!confirm(`Are you sure you want to ${action} Admin privileges for ${name}?\n\nThey will be able to access this God Mode panel.`)) return;
-
-    try {
-        await db.collection('users').doc(uid).update({
-            isAdmin: !currentStatus
-        });
-        alert(`Success: ${name} is ${!currentStatus ? 'now an Admin' : 'no longer an Admin'}.`);
-        loadGodModeData();
-    } catch(e) {
-        alert("Error updating permissions: " + e.message);
-    }
-};
-
-// --- VIEW 2: MASTER ACCOUNTS ---
-window.loadMasterAccounts = async function() {
-    const tbody = document.getElementById('masterAccountList');
-    if(allMasterAccounts.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="7" style="text-align:center; padding:2rem;">Fetching Master Database...</td></tr>';
-    }
-
-    try {
-        const snap = await db.collection('master_client_list').orderBy('pid').limit(1000).get();
-
-        allMasterAccounts = [];
-        snap.forEach(doc => {
-            allMasterAccounts.push({ id: doc.id, ...doc.data() });
-        });
-
-        renderMasterTable(allMasterAccounts);
-
-        document.getElementById('masterCountDisplay').textContent = `Showing ${allMasterAccounts.length} records`;
-
-    } catch (e) {
-        console.error("Error loading master list:", e);
-        tbody.innerHTML = `<tr><td colspan="7" style="color:red; text-align:center;">Error: ${e.message}</td></tr>`;
-    }
-};
 
 window.renderMasterTable = function(data) {
     const tbody = document.getElementById('masterAccountList');
@@ -251,11 +235,23 @@ window.renderMasterTable = function(data) {
 window.filterMasterAccounts = function() {
     const term = document.getElementById('masterSearch').value.toLowerCase();
 
+    // 1. Get Toggle State
+    // If checked, we show ONLY Inactive/Cancelled. If unchecked, we show ONLY Active.
+    const showInactiveOnly = document.getElementById('toggleInactive').checked;
+
     const filtered = allMasterAccounts.filter(acc => {
-        return (acc.pid && String(acc.pid).toLowerCase().includes(term)) ||
+        // Search Filter
+        const matchesSearch = (acc.pid && String(acc.pid).toLowerCase().includes(term)) ||
                (acc.name && acc.name.toLowerCase().includes(term)) ||
                (acc.address && acc.address.toLowerCase().includes(term)) ||
                (acc.franId && acc.franId.toLowerCase().includes(term));
+
+        // Status Filter
+        // If toggle is ON, show anything NOT 'Active'. If OFF, show ONLY 'Active'.
+        const isActive = acc.status === 'Active';
+        const matchesStatus = showInactiveOnly ? !isActive : isActive;
+
+        return matchesSearch && matchesStatus;
     });
 
     renderMasterTable(filtered);
@@ -428,7 +424,7 @@ window.saveNewOwner = async function() {
 
     // Aggressive clean
     const email = rawEmail.toLowerCase().replace(/[^a-z0-9@._-]/g, '');
-    const password = "password";
+    const password = "123456"; // Default Password for new Owners
 
     if (!name || !email) return alert("Owner Name and Email are required.");
 
@@ -446,13 +442,13 @@ window.saveNewOwner = async function() {
 
         await createOwnerDocument(authUser.uid, email, name);
 
-        alert(`Successfully created Owner: ${name}. Login: ${email} / "password"`);
+        alert(`Successfully created Owner: ${name}. Login: ${email} / "123456"`);
         closeAddOwnerModal();
         loadGodModeData();
 
     } catch (e) {
         if(e.code === 'auth/email-already-in-use') {
-            alert(`Error: The email ${email} already exists in Firebase Auth.\n\nYou must delete this user from the Firebase Console > Authentication tab before you can recreate them with the "password" default.`);
+            alert(`Error: The email ${email} already exists in Firebase Auth.\n\nYou must delete this user from the Firebase Console > Authentication tab before you can recreate them.`);
         } else {
             alert("Error creating user: " + e.message);
         }
@@ -493,7 +489,7 @@ async function uploadNewOwners(data, btn, statusEl) {
     let createdCount = 0;
     let failedCount = 0;
     let secondaryApp = null;
-    const INITIAL_PASSWORD = "password";
+    const INITIAL_PASSWORD = "123456"; // Default Password for Imports
 
     try {
         if (typeof window.firebaseConfig === 'undefined') throw new Error("Firebase config not available.");
@@ -648,12 +644,12 @@ window.impersonateUser = function(email, uid) {
 };
 
 window.nukeUser = async function(uid, name) {
-    if(!confirm(`⚠️ DANGER: Are you sure you want to DELETE ${name}'s document?\n\nThis leaves the login (Auth) record orphaned and must be manually deleted.`)) return;
-    if (prompt(`Type "DELETE" to confirm destroying ${name}'s Firestore document.`) !== "DELETE") return;
+    if(!confirm(`⚠️ DANGER ZONE:\n\nAre you sure you want to DELETE ${name}'s account?\n\nDO NOT PUSH UNLESS YOU REALLY, REALLY, MEAN IT!`)) return;
+    if (prompt(`Type "DELETE" to confirm destroying ${name}'s account`) !== "DELETE") return;
 
     try {
         await db.collection('users').doc(uid).delete();
-        alert("User document deleted. NOW GO TO FIREBASE CONSOLE > AUTHENTICATION AND DELETE THE LOGIN.");
+        alert("User document deleted. Have a nice day");
         loadGodModeData();
     } catch(e) { alert("Error: " + e.message); }
 };
@@ -663,4 +659,141 @@ window.filterUsers = function() {
     document.querySelectorAll('.user-row').forEach(row => {
         row.style.display = row.innerText.toLowerCase().includes(term) ? 'flex' : 'none';
     });
+};
+
+// --- NEW ADMIN ACTIONS ---
+
+// 1. Show/Hide Modal
+window.showAddAdminModal = function() {
+    document.getElementById('addAdminModal').style.display = 'flex';
+};
+
+// 2. Create New Admin
+window.saveNewAdmin = async function() {
+    const name = document.getElementById('newAdminName').value;
+    const email = document.getElementById('newAdminEmail').value.toLowerCase().trim();
+
+    if(!name || !email) return alert("Please fill all fields");
+
+    try {
+        const dummyPass = "123456"; // Default Password for Admins
+
+        // A. Create Authentication Record
+        const userCred = await firebase.auth().createUserWithEmailAndPassword(email, dummyPass);
+
+        // B. Create Database Record (With isAdmin: true)
+        await db.collection('users').doc(userCred.user.uid).set({
+            name: name,
+            email: email,
+            role: 'admin',      // Distinct role
+            isAdmin: true,      // The important flag
+            createdAt: firebase.firestore.FieldValue.serverTimestamp()
+        });
+
+        alert(`Admin Created Successfully!\n\nEmail: ${email}\nPassword: ${dummyPass}`);
+
+        document.getElementById('addAdminModal').style.display = 'none';
+
+        // Reload list to show new admin
+        loadGodModeData();
+
+    } catch(e) {
+        alert("Error creating admin: " + e.message);
+    }
+};
+
+// --- NEW ADMIN LIST RENDERER ---
+function renderAdmins() {
+    const tbody = document.getElementById('adminListBody');
+    if (!tbody) return;
+
+    tbody.innerHTML = '';
+
+    // If no admins found
+    if (allAdmins.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="3" style="text-align:center; padding:20px; color:#888;">No other admins found.</td></tr>';
+        return;
+    }
+
+    allAdmins.forEach(admin => {
+        const row = document.createElement('tr');
+
+        row.innerHTML = `
+            <td style="font-weight:600;">
+                ${admin.name || 'Unknown'}
+                ${admin.email === window.currentUser.email ? '<span class="badge badge-active" style="margin-left:5px;">YOU</span>' : ''}
+            </td>
+            <td>${admin.email}</td>
+            <td style="text-align:center;">
+                <button class="btn-delete btn-xs" onclick="deleteAdmin('${admin.id}', '${admin.name}')">
+                    Delete
+                </button>
+            </td>
+        `;
+        tbody.appendChild(row);
+    });
+}
+
+// --- DELETE ADMIN FUNCTION ---
+window.deleteAdmin = async function(uid, name) {
+    // 1. Safety Check (Prevent deleting yourself)
+    if (window.currentUser && uid === window.currentUser.uid) {
+        alert("You cannot delete your own account while logged in.");
+        return;
+    }
+
+    // 2. Confirmation
+    if (!confirm(`⚠️ ARE YOU SURE?\n\nThis will permanently delete the admin account for:\n${name}\n\nThey will lose access immediately.`)) {
+        return;
+    }
+
+    try {
+        // 3. Delete from Database
+        await db.collection('users').doc(uid).delete();
+
+        // 4. Update UI
+        alert(`Admin ${name} deleted.`);
+        loadGodModeData(); // Refresh the list
+
+    } catch (e) {
+        console.error(e);
+        alert("Error deleting admin: " + e.message);
+    }
+};
+
+// --- ADDED THIS FUNCTION TO FIX MASTER CLIENT LIST LOADING ---
+window.loadMasterAccounts = async function() {
+    const tbody = document.getElementById('masterAccountList');
+    if (!tbody) return;
+
+    // 1. Show Loading State
+    tbody.innerHTML = '<tr><td colspan="7" style="text-align:center; padding:20px;">Refreshing Database...</td></tr>';
+
+    try {
+        // 2. Fetch from Firestore
+        const snap = await db.collection('master_client_list').orderBy('pid').get();
+
+        // 3. Cache Data
+        allMasterAccounts = [];
+        snap.forEach(doc => {
+            allMasterAccounts.push({ id: doc.id, ...doc.data() });
+        });
+
+        console.log(`Loaded ${allMasterAccounts.length} master accounts.`);
+
+        // 4. Render Table WITH FILTER APPLIED (Fixes the "show all on load" bug)
+        filterMasterAccounts();
+
+    } catch (e) {
+        console.error("Error loading master accounts:", e);
+        if (e.message.includes("requires an index")) {
+             console.warn("Index missing. Loading unsorted.");
+             const snap = await db.collection('master_client_list').get();
+             allMasterAccounts = [];
+             snap.forEach(doc => { allMasterAccounts.push({ id: doc.id, ...doc.data() }); });
+             filterMasterAccounts(); // Apply filter here too
+        } else {
+             tbody.innerHTML = `<tr><td colspan="7" style="color:red; text-align:center;">Error: ${e.message}</td></tr>`;
+        }
+    }
 };

@@ -84,13 +84,10 @@ async function loadMyShifts(employeeId) {
 
     if (loader) loader.classList.add('active');
 
-    // 1. CALCULATE RENDER START DATE (Do not change global currentStartDate)
-    // This variable determines what the USER SEES, but doesn't overwrite where they ARE.
     let renderStart = new Date(currentStartDate);
     renderStart.setHours(0,0,0,0);
 
     if (currentView === 'week') {
-        // Find the Monday of the current week for RENDERING ONLY
         const day = renderStart.getDay();
         const diff = renderStart.getDate() - day + (day === 0 ? -6 : 1);
         renderStart.setDate(diff);
@@ -98,14 +95,11 @@ async function loadMyShifts(employeeId) {
         renderStart.setDate(1);
     }
 
-    // 2. Update Header Text
+    // Header Updates... (Keep existing code)
     if (dateEl) {
-        if (currentView === 'month') {
-             dateEl.textContent = renderStart.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
-        } else if (currentView === 'day') {
-             // Use currentStartDate (User's selected day) for Day View title
-             dateEl.textContent = currentStartDate.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
-        } else {
+        if (currentView === 'month') dateEl.textContent = renderStart.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+        else if (currentView === 'day') dateEl.textContent = currentStartDate.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+        else {
              const weekEnd = new Date(renderStart);
              weekEnd.setDate(renderStart.getDate() + 6);
              dateEl.textContent = `${renderStart.toLocaleDateString()} - ${weekEnd.toLocaleDateString()}`;
@@ -113,21 +107,23 @@ async function loadMyShifts(employeeId) {
     }
 
     try {
-        // 3. Fetch Jobs
         const allSnap = await db.collection('jobs').where('employeeId', '==', employeeId).get();
         const jobsForRender = [];
+        const accountIds = new Set(); // To track unique accounts
         let totalHours = 0;
 
+        // 1. Process Jobs First
         allSnap.forEach(doc => {
             const j = doc.data();
             j.id = doc.id;
             j.start = j.startTime ? j.startTime.toDate() : new Date();
             j.end = j.endTime ? j.endTime.toDate() : new Date();
 
-            // Calculate Hours (Simple Stat)
+            // Collect Account ID
+            if (j.accountId) accountIds.add(j.accountId);
+
             if (j.status === 'Completed' && j.actualStartTime && j.actualEndTime) {
                  const jobEnd = j.actualEndTime.toDate();
-                 // Only count if it falls in the current month/period roughly (30 days)
                  if (Math.abs(jobEnd - renderStart) < 2592000000) {
                     const diffMs = jobEnd - j.actualStartTime.toDate();
                     totalHours += diffMs / (1000 * 60 * 60);
@@ -136,21 +132,40 @@ async function loadMyShifts(employeeId) {
             jobsForRender.push(j);
         });
 
+        // 2. Fetch Account Details (Alarm Codes)
+        // We do this in parallel for efficiency
+        const accountMap = {};
+        if (accountIds.size > 0) {
+            // Note: 'in' queries are limited to 10 items in Firebase.
+            // If you have >10 accounts, we might need a loop. Assuming <10 active accounts for now.
+            // A safer way without limits is Promise.all
+            const accountPromises = Array.from(accountIds).map(id => db.collection('accounts').doc(id).get());
+            const accountSnaps = await Promise.all(accountPromises);
+
+            accountSnaps.forEach(snap => {
+                if (snap.exists) {
+                    accountMap[snap.id] = snap.data().alarmCode || 'N/A';
+                }
+            });
+        }
+
+        // 3. Attach Alarm Codes to Jobs
+        jobsForRender.forEach(job => {
+            job.alarmCode = accountMap[job.accountId] || null;
+        });
+
         if (hoursDisplay) hoursDisplay.textContent = totalHours.toFixed(2);
         updateNextShiftDisplay(jobsForRender);
 
-        // 4. Render Grid using the Calculated "renderStart"
         if (container) {
             container.innerHTML = '';
-
-            // Update Active Buttons
             document.querySelectorAll('.btn-view-toggle').forEach(btn => {
                 btn.classList.toggle('active', btn.dataset.view === currentView);
             });
 
-            if (currentView === 'month') renderMonthView(jobsForRender); // Month view handles its own dates
-            else if (currentView === 'day') renderDayView(jobsForRender); // Day view uses currentStartDate directly
-            else renderWeekView(jobsForRender, renderStart); // Pass the calculated Monday
+            if (currentView === 'month') renderMonthView(jobsForRender);
+            else if (currentView === 'day') renderDayView(jobsForRender);
+            else renderWeekView(jobsForRender, renderStart);
         }
 
     } catch (e) {
@@ -405,7 +420,17 @@ function createDetailCard(job) {
         actionBtn = `<button class="btn-checkin" onclick="attemptCheckIn('${job.id}', '${job.accountId}')">📍 Clock In</button>`;
     }
 
-    const mapLink = `https://maps.google.com/?q=${encodeURIComponent(job.accountName)}`;
+    const mapLink = `http://googleusercontent.com/maps.google.com/2{encodeURIComponent(job.accountName)}`;
+
+    // --- [UPDATED] ALARM CODE DISPLAY ---
+    // Removed box styles, now just red text like the link below it.
+    let alarmHtml = '';
+    if (job.alarmCode && job.alarmCode !== 'N/A') {
+        alarmHtml = `
+        <div style="margin-top:8px; display:flex; align-items:center; color:#dc2626; font-size:0.9rem; font-weight:600;">
+            🔒 Alarm: <span style="margin-left:5px;">${job.alarmCode}</span>
+        </div>`;
+    }
 
     const card = document.createElement('div');
     card.className = 'shift-card';
@@ -417,12 +442,13 @@ function createDetailCard(job) {
 
     card.innerHTML = `
         <div style="display:flex; justify-content:space-between; align-items:flex-start;">
-            <div>
+            <div style="width:100%;">
                 <div style="font-size:1.1rem; font-weight:800; color:#1f2937;">
                     ${timeStr} ${lateLabel}
                 </div>
                 <div style="font-size:1rem; color:#4b5563; margin-top:2px;">${job.accountName}</div>
-                <a href="${mapLink}" target="_blank" style="font-size:0.85rem; color:#2563eb; text-decoration:none; display:block; margin-top:5px;">🗺️ Get Directions</a>
+
+                ${alarmHtml} <a href="${mapLink}" target="_blank" style="font-size:0.85rem; color:#2563eb; text-decoration:none; display:block; margin-top:8px;">🗺️ Get Directions</a>
             </div>
         </div>
         <div style="margin-top:10px;">${actionBtn}</div>

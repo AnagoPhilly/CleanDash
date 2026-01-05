@@ -102,7 +102,7 @@
             width: 100%;
             margin-top: 0;
         }
-        /* Style for Bulk Import/Nuke Buttons */
+        /* Style for Buttons */
         .btn-danger {
             background: #fee2e2;
             color: #b91c1c;
@@ -119,6 +119,20 @@
         #btnImportOwners:hover {
             background: var(--primary-hover) !important;
         }
+
+        /* --- IMPORTER SPECIFIC STYLES --- */
+        .upload-box { border: 2px dashed #cbd5e1; border-radius: 8px; padding: 30px; background: #f8fafc; margin: 20px 0; }
+        .checkbox-wrapper { display: flex; align-items: center; gap: 10px; background: #e0f2fe; padding: 10px; border-radius: 6px; border: 1px solid #bae6fd; color: #0369a1; font-weight: 600; box-sizing: border-box; margin-bottom: 15px;}
+        .log-window { background: #1f2937; color: #10b981; padding: 15px; height: 300px; overflow-y: auto; border-radius: 8px; margin-top: 20px; font-family: monospace; font-size: 0.85rem; }
+        .log-entry { margin-bottom: 4px; border-bottom: 1px solid #374151; padding-bottom: 2px; }
+        .log-warn { color: #f59e0b; }
+        .log-error { color: #ef4444; font-weight: bold; }
+        .log-success { color: #34d399; font-weight: bold; }
+        .btn-sync { background: #eff6ff; color: #1d4ed8; border: 1px solid #bfdbfe; width:100%; margin-top:10px; padding:12px; border-radius:6px; cursor:pointer; font-weight:bold;}
+        .btn-sync:hover { background: #dbeafe; }
+        select.import-select { width: 100%; padding: 12px; border-radius: 6px; border: 1px solid #d1d5db; background: white; margin-bottom: 15px; font-size: 1rem; }
+        .btn-disabled { background: #9ca3af !important; cursor: not-allowed; opacity: 0.7; }
+
     </style>
 </head>
 <body>
@@ -134,9 +148,10 @@
         </div>
         <nav class="nav">
             <div id="nav-users" class="nav-item active" onclick="switchAdminTab('users')">Franchise Owners</div>
+            <div id="nav-admins" class="nav-item" onclick="switchAdminTab('admins')">Admin / Staff</div>
             <div id="nav-accounts" class="nav-item" onclick="switchAdminTab('accounts')">Master Accounts</div>
-            <div class="nav-item" onclick="window.open('import.html', '_blank')">Data Importer Tool</div>
-            <div class="nav-item" onclick="window.location.href='index.html'">Exit to Dashboard</div>
+            <div id="nav-import" class="nav-item" onclick="switchAdminTab('import')">Data Importer Tool</div>
+            <div id="navExitDashboard" class="nav-item" style="display:none;" onclick="window.location.href='index.html'">Exit to Dashboard</div>
         </nav>
     </div>
 
@@ -175,8 +190,7 @@
 
                 <div class="content-card" style="margin-top: 30px;">
                     <div class="card-header" style="border-bottom:none; margin-bottom: 0;">
-                        <h2>Bulk Franchise Owner Import</h2>
-                        <p style="color:#ef4444; font-weight:700;">⚠️ Use ONLY for initial setup. Accounts created here use a temporary password.</p>
+                        <h2>Franchise Owner Import</h2>
                     </div>
 
                     <div style="padding: 20px; border: 2px dashed #fca5a5; background: #fffbeb; border-radius: 8px;">
@@ -194,7 +208,7 @@
                     </div>
 
                     <div style="margin-top: 20px;">
-                        <h3 style="font-size: 1rem; color: #666; margin-bottom: 5px;">Required CSV Columns:</h3>
+                        <h3 style="font-size: 1rem; color: #666; margin-bottom: 5px;">CSV Column Data Needed:</h3>
                         <code style="background:#f3f4f6; padding: 5px 10px; border-radius:4px; font-size: 0.9rem; display: block;">
                             CompanyName, Address, City, State, Zip, ContactName, ContactPhone, ContactEmail, CFee, PurchaseDate
                         </code>
@@ -202,34 +216,102 @@
                 </div>
             </div>
 
-            <div id="view-accounts" class="admin-view" style="display:none;">
+            <div id="view-admins" class="admin-view" style="display:none;">
                 <div class="content-card">
                     <div class="card-header">
+                        <h2>System Admins</h2>
+                        <button class="btn btn-primary" style="background-color:#4f46e5;" onclick="document.getElementById('addAdminModal').style.display='flex'">
+                            + Add New Admin
+                        </button>
+                    </div>
+
+                    <table class="admin-table">
+                        <thead>
+                        <tr>
+                            <th>Name</th>
+                            <th>Email</th>
+                            <th style="text-align:center;">Actions</th>
+                        </tr>
+                        </thead>
+                        <tbody id="adminListBody">
+                        <tr><td colspan="3" style="text-align:center; padding:20px;">Loading...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <div id="view-accounts" class="admin-view" style="display:none;">
+                <div class="content-card">
+                    <div class="card-header" style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;">
                         <h2>Master Client Database</h2>
-                        <div style="display:flex; gap:10px;">
-                            <input type="text" id="masterSearch" placeholder="Search PID, Name, Address..." style="padding: 8px; width: 300px; border-radius: 4px; border: 1px solid #ccc;" onkeyup="filterMasterAccounts()">
+
+                        <div style="display:flex; align-items:center; gap:15px;">
+                            <div style="display:flex; align-items:center; background:#f9fafb; padding:5px 10px; border-radius:8px; border:1px solid #e5e7eb;">
+                                <label class="switch">
+                                    <input type="checkbox" id="toggleInactive" onchange="filterMasterAccounts()">
+                                    <span class="slider"></span>
+                                </label>
+                                <span style="margin-left:8px; font-size:0.85rem; font-weight:600; color:#4b5563;">Show Inactive</span>
+                            </div>
+
+                            <input type="text" id="masterSearch" onkeyup="filterMasterAccounts()" placeholder="Search PID, Name, Address..."
+                                   style="padding:8px; border:1px solid #ddd; border-radius:6px; width:250px;">
+
                             <button class="btn btn-secondary" onclick="loadMasterAccounts()">🔄 Refresh</button>
                         </div>
                     </div>
-                    <div style="overflow-x: auto;">
-                        <table class="admin-table">
-                            <thead>
-                            <tr>
-                                <th>PID</th>
-                                <th>Client Name</th>
-                                <th>Address</th>
-                                <th>Fran ID</th>
-                                <th style="text-align:right;">Revenue</th>
-                                <th style="text-align:center;">Status</th>
-                                <th style="text-align:center; width: 100px;">Actions</th>
-                            </tr>
-                            </thead>
-                            <tbody id="masterAccountList">
-                            <tr><td colspan="7" style="text-align:center; padding:2rem;">Loading master database...</td></tr>
-                            </tbody>
-                        </table>
+
+                    <table class="admin-table">
+                        <thead>
+                        <tr>
+                            <th>PID</th>
+                            <th>Name</th>
+                            <th>Address</th>
+                            <th>Fran ID</th>
+                            <th style="text-align:right;">Revenue</th>
+                            <th style="text-align:center;">Status</th>
+                            <th style="text-align:center;">Actions</th>
+                        </tr>
+                        </thead>
+                        <tbody id="masterAccountList"></tbody>
+                    </table>
+                </div>
+            </div>
+
+            <div id="view-import" class="admin-view" style="display:none;">
+                <div class="content-card">
+                    <div class="card-header">
+                        <h2>Admin Data Importer</h2>
                     </div>
-                    <div id="masterCountDisplay" style="margin-top:10px; font-size:0.85rem; color:#666; text-align:right;"></div>
+
+                    <div style="padding: 10px;">
+                        <label style="font-weight:bold; color:#374151;">Select Import Type:</label>
+                        <select id="importType" class="import-select">
+                            <option value="master">1. Active Master List (Upsert & Update)</option>
+                            <option value="cancelled">2. Cancelled Client List (Set Inactive)</option>
+                            <option value="history">3. Legacy Account History (Initial Setup)</option>
+                        </select>
+
+                        <div class="checkbox-wrapper">
+                            <input type="checkbox" id="geoEnabled" checked>
+                            <label for="geoEnabled">Auto-Fix Map Coordinates (Adds ~0.6s per row)</label>
+                        </div>
+
+                        <div class="upload-box">
+                            <input type="file" id="uploadCsv" accept=".csv" />
+                        </div>
+
+                        <button id="btnUpload" class="btn btn-primary" style="width:100%;" onclick="processFile()">🚀 Start Import</button>
+                        <button onclick="runSmartSync()" class="btn-sync">🧠 Run Smart Sync (Fix Missing Owner Addresses)</button>
+
+                        <div id="status" style="margin-top:15px; text-align:center; font-weight:bold; color: #4b5563; min-height: 20px;"></div>
+                        <div id="log" class="log-window"></div>
+
+                        <div style="margin-top: 20px; display: flex; gap: 10px;">
+                            <button class="btn" onclick="checkRecordCount()" style="background:#e0f2fe; color:#0369a1; border:1px solid #bae6fd;">📊 Check Master Count</button>
+                            <button class="btn btn-danger" onclick="wipeMasterList()">🗑️ Wipe Master Data</button>
+                        </div>
+                    </div>
                 </div>
             </div>
 
@@ -310,6 +392,30 @@
         <div class="modal-buttons">
             <button onclick="saveNewOwner()" class="btn btn-primary" style="background:var(--primary);">Create Owner</button>
             <button onclick="closeAddOwnerModal()" class="cancel">Cancel</button>
+        </div>
+    </div>
+</div>
+
+<div id="addAdminModal" class="modal">
+    <div class="modal-content" style="max-width: 400px;">
+        <h2 style="color: #4f46e5;">+ Add New Admin</h2>
+
+        <div class="input-wrapper" style="margin-bottom:10px;">
+            <label>Name</label>
+            <input type="text" id="newAdminName" placeholder="e.g. Office Staff" />
+        </div>
+        <div class="input-wrapper" style="margin-bottom:10px;">
+            <label>Email</label>
+            <input type="email" id="newAdminEmail" placeholder="staff@cleandash.com" />
+        </div>
+
+        <p style="font-size:0.8rem; color:#666;">
+            <strong>Note:</strong> This user will have full access to God Mode and all Franchise Dashboards.
+        </p>
+
+        <div class="modal-buttons">
+            <button onclick="saveNewAdmin()" class="btn btn-primary" style="background:#4f46e5;">Create Admin</button>
+            <button onclick="document.getElementById('addAdminModal').style.display='none'" class="cancel">Cancel</button>
         </div>
     </div>
 </div>

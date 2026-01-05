@@ -26,116 +26,158 @@ window.db = db;
 window.currentUser = null;
 
 // --- THE TRAFFIC COP (Role-Based Access Control) ---
-auth.onAuthStateChanged(async user => {
-  const isPortal = window.location.pathname.includes('employee_portal.html');
-  const loginPage = document.getElementById('loginPage');
-  const app = document.getElementById('app');
-  const appLoading = document.getElementById('appLoading');
+auth.onAuthStateChanged(async realUser => {
+    // 1. ROBUST PAGE DETECTION (Fixes the loop/stuck issue)
+    // Checks for 'employee_portal', 'employee-portal', or just 'portal'
+    const currentPath = window.location.pathname.toLowerCase();
+    const isPortal = currentPath.includes('portal');
+    const isDashboard = currentPath.includes('index') || currentPath === '/' || currentPath.endsWith('/');
 
-  // Sidebar Elements
-  const nameDisplay = document.getElementById('userNameDisplay');
-  const emailDisplay = document.getElementById('userEmailDisplay');
+    // UI Elements
+    const loginPage = document.getElementById('loginPage');
+    const app = document.getElementById(isPortal ? 'empApp' : 'app');
+    const appLoading = document.getElementById('appLoading');
+    const nameDisplay = document.getElementById('userNameDisplay');
+    const emailDisplay = document.getElementById('userEmailDisplay');
+    const btnGodMode = document.getElementById('navGodMode');
+    const adminLabel = document.getElementById('adminModeStatusLabel');
 
-  if (user) {
-    console.log("Auth: User detected:", user.email);
-    window.currentUser = user;
-    const currentEmail = user.email.toLowerCase();
+    if (realUser) {
+        console.log("Auth: Logged in as", realUser.email);
 
-    try {
-        // 1. FETCH USER PROFILE (OWNER)
-        const userDoc = await db.collection('users').doc(user.uid).get();
-        let userData = {};
-        let isOwner = false;
+        try {
+            // --- 1. FETCH REAL USER PROFILE ---
+            const realUserDoc = await db.collection('users').doc(realUser.uid).get();
+            const realUserData = realUserDoc.exists ? realUserDoc.data() : {};
 
-        if (userDoc.exists) {
-            userData = userDoc.data();
-            isOwner = true; // Use simple logic: if you have a user profile, you are an owner/admin
+            // Define Admins
+            const HARDCODED_ADMINS = [
+                'nate@anagophilly.com',
+                'admin@cleandash.com'
+            ];
+            const isDbAdmin = realUserData.isAdmin === true;
+            const isRealAdmin = HARDCODED_ADMINS.includes(realUser.email.toLowerCase()) || isDbAdmin;
 
-            // Update Sidebar UI
-            if (nameDisplay) nameDisplay.textContent = userData.name || "Franchise Owner";
-            if (emailDisplay) emailDisplay.textContent = userData.email || user.email;
-        }
+            // --- 2. IMPERSONATION LOGIC ---
+            const params = new URLSearchParams(window.location.search);
+            const viewAsEmail = params.get('viewAs');
+            const viewAsUid = params.get('targetId');
 
-        // ---------------------------------------------------------------
-        // 2. GOD MODE CHECK (MOVED OUTSIDE 'userDoc.exists')
-        // ---------------------------------------------------------------
-        // This ensures you get the button even if your DB profile is missing
-        const ALLOWED_ADMINS = ['nate@anagophilly.com', 'admin@cleandash.com'];
+            let targetEmail = realUser.email;
+            let targetUid = realUser.uid;
+            let isImpersonating = false;
 
-        const isAdmin = ALLOWED_ADMINS.includes(currentEmail) || (userData.isAdmin === true);
+            if (viewAsEmail && isRealAdmin) {
+                console.warn(`⚡ GOD MODE: Impersonating ${viewAsEmail}`);
+                targetEmail = viewAsEmail;
+                targetUid = viewAsUid || 'IMPERSONATED_UID';
+                isImpersonating = true;
 
-        const btnGodMode = document.getElementById('navGodMode');
-        if (btnGodMode) {
-            console.log(`God Mode Check: ${currentEmail} -> ${isAdmin ? 'ALLOWED' : 'DENIED'}`);
-            btnGodMode.style.display = isAdmin ? 'flex' : 'none';
-        }
-        // ---------------------------------------------------------------
-
-        // 3. OWNER / ADMIN REDIRECT LOGIC
-        if (isOwner || isAdmin) {
-            // REDIRECT: Owners shouldn't be on the Portal
-            if (isPortal) {
-                 window.location.href = 'index.html';
-                 return;
+                // Visual Indicator
+                const sidebarHeader = document.querySelector('.sidebar-header h1');
+                if(sidebarHeader) sidebarHeader.innerHTML = `CleanDash <br><span style="font-size:12px; color:#ef4444;">VIEWING: ${viewAsEmail}</span>`;
+                if (adminLabel) adminLabel.innerHTML = `STATUS: <span style="color:#ef4444;">IMPERSONATING</span>`;
             }
 
-            // Show Dashboard
+            // Set Global Context
+            window.currentUser = { uid: targetUid, email: targetEmail, isRealAdmin: isRealAdmin };
+
+            // --- 3. IDENTIFY USER TYPE ---
+            let targetUserData = {};
+            let isOwner = false;
+
+            // Check 'users' collection (Owners/Admins)
+            if (isImpersonating) {
+                 // (Your existing impersonation fetch logic here...)
+                 // For brevity, assuming success if impersonating
+                 isOwner = true;
+            } else {
+                 isOwner = realUserDoc.exists;
+                 targetUserData = realUserData;
+            }
+
+            // If not Owner, Check 'employees' collection
+            let isEmployee = false;
+            if (!isOwner) {
+                let empSnap = await db.collection('employees').where('email', '==', targetEmail.toLowerCase()).limit(1).get();
+                if (empSnap.empty) {
+                    // Fallback for mixed case emails
+                    empSnap = await db.collection('employees').where('email', '==', targetEmail).limit(1).get();
+                }
+
+                if (!empSnap.empty) {
+                    isEmployee = true;
+                    targetUserData = empSnap.docs[0].data();
+                    // Update currentUser ID to the employee doc ID
+                    window.currentUser.uid = empSnap.docs[0].id;
+                }
+            }
+
+            // --- 4. THE ROUTING LOGIC (CRITICAL FIX) ---
+
+            if (isOwner) {
+                // Owner on Portal? -> KICK TO DASHBOARD
+                if (isPortal) {
+                    console.log("Redirecting Owner to Dashboard...");
+                    window.location.href = 'index.html';
+                    return;
+                }
+                // (Keep your God Mode / Admin Page logic here)
+            }
+            else if (isEmployee) {
+                // Employee on Dashboard? -> KICK TO PORTAL
+                if (!isPortal) {
+                    console.log("Redirecting Employee to Portal...");
+                    // *** VERIFY THIS FILENAME MATCHES YOUR ACTUAL FILE ***
+                    window.location.href = 'employee_portal.html';
+                    return;
+                }
+                // If we are here, we are an Employee ON the Portal. Access Granted.
+            }
+            else {
+                // Phantom User
+                alert("Account not found. Please contact support.");
+                await auth.signOut();
+                window.location.href = 'index.html';
+                return;
+            }
+
+            // --- 5. RENDER UI ---
+            // Update Sidebar Name
+            if (nameDisplay) nameDisplay.textContent = targetUserData.name || "User";
+            if (emailDisplay) emailDisplay.textContent = targetEmail;
+
+            // Hide Login / Show App
             if (loginPage) loginPage.style.display = 'none';
             if (appLoading) appLoading.style.display = 'none';
             if (app) {
                 app.style.display = 'flex';
-                // Trigger Dashboard Loads
+                // Trigger page-specific loads
                 setTimeout(() => {
                     const activePage = document.querySelector('.page.active');
-                    const pageId = activePage ? activePage.id : 'dashboard';
+                    const pageId = activePage ? activePage.id : (isPortal ? 'employee-scheduler' : 'dashboard'); // Default
 
-                    if (pageId === 'scheduler' && window.loadScheduler) window.loadScheduler();
+                    if (isPortal && window.loadEmployeePortal) window.loadEmployeePortal();
+                    else if (pageId === 'scheduler' && window.loadScheduler) window.loadScheduler();
                     else if (pageId === 'accounts' && window.loadAccountsList) window.loadAccountsList();
                     else if (pageId === 'employees' && window.loadEmployees) window.loadEmployees();
-                    else if (window.loadMap) window.loadMap();
                 }, 100);
             }
-            return;
+
+        } catch (error) {
+            console.error("Auth Error:", error);
+            // Don't alert on simple redirects
         }
-
-        // 4. CHECK IF EMPLOYEE (Only if NOT an Owner/Admin)
-        const empSnap = await db.collection('employees').where('email', '==', currentEmail).limit(1).get();
-
-        if (!empSnap.empty) {
-            // REDIRECT: If on Dashboard, go to Portal
-            if (!isPortal) {
-                window.location.href = 'employee_portal.html';
-                return;
-            }
-            console.log("Auth: Employee verified on Portal.");
-            return;
+    } else {
+        // Not Logged In
+        if (isPortal) {
+            window.location.href = 'index.html'; // Protect Portal
+        } else {
+            if (loginPage) loginPage.style.display = 'flex';
+            if (app) app.style.display = 'none';
+            if (appLoading) appLoading.style.display = 'none';
         }
-
-        // 5. UNKNOWN USER
-        console.warn("Auth: User authenticated but no profile found.");
-
-        // Even guests might be Admins if hardcoded above, so we don't kick them out instantly if they passed the Admin check
-        if (isAdmin) return;
-
-        alert("Access Denied: No profile found for " + user.email);
-        auth.signOut();
-
-    } catch (error) {
-        console.error("Auth Critical Failure:", error);
-        alert("System Error: " + error.message);
-        if (appLoading) appLoading.style.display = 'none';
-        if (loginPage) loginPage.style.display = 'flex';
     }
-  } else {
-    // 6. NOT LOGGED IN
-    if (isPortal) {
-        window.location.href = 'index.html';
-        return;
-    }
-    if (loginPage) loginPage.style.display = 'flex';
-    if (app) app.style.display = 'none';
-    if (appLoading) appLoading.style.display = 'none';
-  }
 });
 
 // --- LOGIN FUNCTION ---

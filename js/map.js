@@ -75,15 +75,13 @@ async function loadMap() {
     if (!map) {
         map = L.map('map').setView([39.8, -98.5], 4);
         L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
-        // REMOVED: Search Control/Geocoder from the map interface
-        // if (L.Control.Geocoder) L.Control.geocoder({ placeholder: "Search..." }).addTo(map);
     }
 
     setTimeout(() => { map.invalidateSize(); }, 200);
 
     // Clear existing markers & map object
     map.eachLayer(l => l instanceof L.Marker && map.removeLayer(l));
-    markersMap = {}; // Reset storage
+    markersMap = {};
 
     const activeListDiv = document.getElementById('dashAccountList');
     if(activeListDiv) activeListDiv.innerHTML = '';
@@ -94,7 +92,10 @@ async function loadMap() {
     let totalRevenue = 0;
     let accountCount = 0;
     let activeEmployeeCount = 0;
+
+    // Fix: Use "Start of today" to match accounts.js logic
     const today = new Date();
+    today.setHours(0,0,0,0);
 
     try {
         // --- 1. Load User Home Pin ---
@@ -120,18 +121,23 @@ async function loadMap() {
         });
 
         // --- 3. Load Account Pins & List ---
-        // Load only accounts assigned to the current user (consistent with loadAccountsList fix)
         const q = db.collection('accounts').where('owner', '==', window.currentUser.email);
-
         const accSnap = await q.get();
 
         accSnap.forEach(doc => {
             const a = doc.data();
-            const end = a.endDate ? new Date(a.endDate) : null;
-            let isActive = true;
-            if(end && end < today) isActive = false;
 
-            if(isActive) {
+            // --- THE FIX: ROBUST STATUS CHECK ---
+            const end = a.endDate ? new Date(a.endDate) : null;
+
+            // 1. Check Explicit Status
+            const isExplicitlyInactive = (a.status === 'Inactive');
+
+            // 2. Check Date Expiration
+            const isExpired = (end && end < today);
+
+            // Only count as active if NEITHER is true
+            if (!isExplicitlyInactive && !isExpired) {
                 accountCount++;
                 totalRevenue += (a.revenue || 0);
 
@@ -141,10 +147,10 @@ async function loadMap() {
                         .bindPopup(`<b>🏢 ${a.name}</b><br>${a.address}<br><b style="color:#0d9488">$${(a.revenue||0).toLocaleString()}/mo</b>`);
 
                     boundsMarkers.push(marker);
-                    markersMap[doc.id] = marker; // Store reference
+                    markersMap[doc.id] = marker;
                 }
 
-                // Create List Card with Hover Events
+                // Create List Card
                 if (activeListDiv) {
                     const card = document.createElement('div');
                     card.className = 'dash-account-card';
@@ -155,12 +161,12 @@ async function loadMap() {
                         <div class="dash-acc-rev">$${(a.revenue||0).toLocaleString()}</div>
                     `;
 
-                    // --- HOVER INTERACTION ---
+                    // Hover Events
                     card.addEventListener('mouseenter', () => {
                         const m = markersMap[doc.id];
                         if (m) {
-                            m.setIcon(AccountIconHover); // Make bigger
-                            m.setZIndexOffset(1000); // Bring to front
+                            m.setIcon(AccountIconHover);
+                            m.setZIndexOffset(1000);
                             m.openPopup();
                         }
                     });
@@ -168,7 +174,7 @@ async function loadMap() {
                     card.addEventListener('mouseleave', () => {
                         const m = markersMap[doc.id];
                         if (m) {
-                            m.setIcon(AccountIcon); // Revert size
+                            m.setIcon(AccountIcon);
                             m.setZIndexOffset(0);
                             m.closePopup();
                         }

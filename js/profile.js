@@ -1,167 +1,157 @@
 // js/profile.js
 
-// Utility function that cleans the number and builds the SMS email address
+// --- 1. SMS UTILITY ---
 function generateSmsEmail() {
-    const phoneInput = document.getElementById('editPhoneNumber')?.value;
-    const carrierInput = document.getElementById('editCarrier')?.value;
+    const phoneInput = document.getElementById('editPhoneNumber');
+    const carrierInput = document.getElementById('editCarrier');
     const previewEl = document.getElementById('smsPreview');
 
-    if (!phoneInput || !carrierInput) {
-        if(previewEl) previewEl.textContent = "Final SMS Address: Not Set";
-        return null;
-    }
+    if (!phoneInput || !carrierInput) return null;
 
-    // 1. Clean number (remove all non-digit characters, ignoring hyphens initially due to input field)
-    const cleanNumber = phoneInput.replace(/[^0-9]/g, '');
+    // Standardize input
+    const rawPhone = phoneInput.value || '';
+    const carrier = carrierInput.value || '';
+
+    // Clean number (remove all non-digit characters)
+    const cleanNumber = rawPhone.replace(/[^0-9]/g, '');
 
     if (cleanNumber.length !== 10) {
-        if(previewEl) previewEl.textContent = "Final SMS Address: ⚠️ 10 digits required";
+        if(previewEl) previewEl.textContent = "⚠️ 10 digits required";
         return null;
     }
 
-    const finalSmsEmail = `${cleanNumber}@${carrierInput}`;
-    if(previewEl) previewEl.textContent = `Final SMS Address: ${finalSmsEmail}`;
+    if (!carrier) {
+        if(previewEl) previewEl.textContent = "Select a carrier";
+        return null;
+    }
+
+    const finalSmsEmail = `${cleanNumber}@${carrier}`;
+    if(previewEl) previewEl.textContent = `SMS: ${finalSmsEmail}`;
     return finalSmsEmail;
 }
 
 
-function loadProfile() {
+// --- 2. LOAD PROFILE ---
+window.loadProfile = async function() {
   console.log("CleanDash: Loading Profile...");
 
-  if (!window.currentUser) {
-      console.warn("CleanDash: No user logged in for profile.");
-      return;
+  if (!window.currentUser) return console.warn("No user logged in.");
+
+  try {
+      const uid = window.currentUser.uid;
+      const doc = await db.collection('users').doc(uid).get();
+      const data = doc.exists ? doc.data() : {};
+
+      // A. Populate "View" mode (Dashboard Display)
+      setText('viewName', data.name || 'Not set');
+      setText('viewEmail', window.currentUser.email);
+      setText('viewAddress', data.address || 'Not set');
+      setText('viewCfi', (data.cfi || 0).toFixed(2));
+      setText('viewCodb', (data.codb || 25) + '%');
+
+      // B. Populate "Edit" mode inputs (Modal)
+      // We check if element exists before setting value to prevent errors
+      setValue('editName', data.name || '');
+      setValue('editAddress', data.address || '');
+      setValue('editCfi', data.cfi || '');
+      setValue('editCodb', data.codb || 25);
+
+      // C. Populate SMS Fields
+      if (data.contactPhone) setValue('editPhoneNumber', data.contactPhone);
+      if (data.carrier) setValue('editCarrier', data.carrier);
+
+      // Update preview text
+      generateSmsEmail();
+
+  } catch (error) {
+      console.error("Error loading profile:", error);
+  }
+};
+
+
+// --- 3. SAVE PROFILE ---
+window.saveProfile = function() {
+  if (!window.currentUser) return alert("You must be logged in to save.");
+
+  const btn = document.getElementById('btnSaveProfile');
+  const originalText = btn ? btn.textContent : 'Save Changes';
+
+  if(btn) {
+      btn.disabled = true;
+      btn.textContent = "Saving...";
   }
 
   const uid = window.currentUser.uid;
 
-  db.collection('users').doc(uid).get().then(doc => {
-    const data = doc.exists ? doc.data() : {};
+  // 1. Gather Data safely
+  // We use "|| ''" to ensure we don't save nulls
+  const nameVal = document.getElementById('editName')?.value.trim() || '';
+  const addrVal = document.getElementById('editAddress')?.value.trim() || '';
+  const phoneVal = document.getElementById('editPhoneNumber')?.value.trim() || '';
+  const carrierVal = document.getElementById('editCarrier')?.value || '';
 
-    // Populate the "View" mode
-    setText('viewName', data.name || 'Not set');
-    setText('viewEmail', window.currentUser.email);
-    setText('viewAddress', data.address || 'Not set');
-    setText('viewCfi', (data.cfi || 0).toFixed(2));
-    setText('viewCodb', (data.codb || 25) + '%');
+  const cfiVal = parseFloat(document.getElementById('editCfi')?.value) || 0;
+  const codbVal = parseFloat(document.getElementById('editCodb')?.value) || 25;
 
-    // Populate the "Edit" mode inputs
-    setValue('editName', data.name || '');
-    setValue('editEmail', window.currentUser.email);
-    setValue('editAddress', data.address || '');
-    setValue('editCfi', data.cfi || '');
-    setValue('editCodb', data.codb || '');
-    setValue('editAlertThreshold', data.alertThreshold || 15);
+  const smsEmail = generateSmsEmail(); // Recalculate based on current inputs
 
-    // NEW: Populate SMS Fields from saved smsEmail
-    if (data.smsEmail) {
-        // Split the saved email (e.g., 2155551234@vtext.com)
-        const [number, carrier] = data.smsEmail.split('@');
+  const data = {
+    name: nameVal,
+    address: addrVal,
+    contactPhone: phoneVal,
+    carrier: carrierVal,
+    smsEmail: smsEmail || '',
+    cfi: cfiVal,
+    codb: codbVal,
+    lastUpdated: firebase.firestore.FieldValue.serverTimestamp()
+  };
 
-        // Format number for display (215-555-1234)
-        setValue('editPhoneNumber', number.replace(/(\d{3})(\d{3})(\d{4})/, '$1-$2-$3'));
-        setValue('editCarrier', carrier);
-    } else {
-        setValue('editPhoneNumber', '');
-        setValue('editCarrier', '');
-    }
+  // 2. Write to Database (Using SET with MERGE is safer than UPDATE)
+  db.collection('users').doc(uid).set(data, { merge: true })
+  .then(() => {
+    window.showToast("Profile Saved!");
 
-    // Ensure the preview runs once after load
-    // The event listeners added in initProfileListeners will handle this dynamically
-    setTimeout(generateSmsEmail, 100);
+    // Refresh UI
+    loadProfile();
 
-  }).catch(error => {
-      console.error("CleanDash: Error loading profile:", error);
+    // Close Modal
+    setTimeout(() => {
+        document.getElementById('editProfileModal').style.display = 'none';
+    }, 500);
+  })
+  .catch(error => {
+      alert("Error saving: " + error.message);
+      console.error(error);
+  })
+  .finally(() => {
+      if(btn) {
+          btn.disabled = false;
+          btn.textContent = originalText;
+      }
   });
-}
+};
 
-// Helper to safely set text content
+
+// --- 4. HELPERS ---
+window.openEditProfile = function() {
+    loadProfile();
+    document.getElementById('editProfileModal').style.display = 'flex';
+};
+
 function setText(id, text) {
     const el = document.getElementById(id);
     if (el) el.textContent = text;
 }
 
-// Helper to safely set input value
 function setValue(id, val) {
     const el = document.getElementById(id);
     if (el) el.value = val;
 }
 
-function initProfileListeners() {
-    const editBtn = document.getElementById('editProfileBtn');
-
-    if (editBtn) {
-        const newBtn = editBtn.cloneNode(true);
-        editBtn.parentNode.replaceChild(newBtn, editBtn);
-
-        newBtn.addEventListener('click', () => {
-            document.getElementById('profileView').style.display = 'none';
-            document.getElementById('profileEdit').style.display = 'block';
-        });
-    }
-
-    // NEW: Add event listeners for the SMS fields
-    const phoneInput = document.getElementById('editPhoneNumber');
-    const carrierInput = document.getElementById('editCarrier');
-
-    // Note: oninput is added directly to HTML for real-time validation/formatting
-    if(phoneInput && !phoneInput.hasAttribute('oninput')) {
-        // Fallback or safety registration if HTML attribute is missed
-        phoneInput.addEventListener('input', generateSmsEmail);
-    }
-    if(carrierInput) {
-         carrierInput.addEventListener('change', generateSmsEmail);
-    }
-}
-
-window.cancelEdit = function() {
-  document.getElementById('profileView').style.display = 'grid';
-  document.getElementById('profileEdit').style.display = 'none';
-};
-
-window.saveProfile = function() {
-  if (!window.currentUser) return;
-
-  const uid = window.currentUser.uid;
-
-  // Generate the final SMS email address (with validation)
-  const finalSmsEmail = generateSmsEmail();
-
-  // If the user has data in the phone field but the generation failed (e.g., missing carrier or 10 digits)
-  if (!finalSmsEmail && document.getElementById('editPhoneNumber').value.trim().length > 0) {
-      return alert("ERROR: Please select your carrier and ensure your phone number has 10 digits.");
-  }
-
-  // Gather data from inputs
-  const data = {
-    name: document.getElementById('editName').value.trim(),
-    address: document.getElementById('editAddress').value.trim(),
-    cfi: parseFloat(document.getElementById('editCfi').value) || 0,
-    codb: parseFloat(document.getElementById('editCodb').value) || 25,
-    alertThreshold: parseInt(document.getElementById('editAlertThreshold').value) || 15,
-
-    // NEW: Save the generated SMS Email. Saves null/empty string if not fully set up.
-    smsEmail: finalSmsEmail || ''
-  };
-
-  db.collection('users').doc(uid).set(data, { merge: true }).then(() => {
-    document.getElementById('saveSuccess').style.display = 'block';
-
-    loadProfile();
-
-    if (typeof window.loadMap === 'function') window.loadMap();
-    if (typeof window.populateCfi === 'function') window.populateCfi();
-    if (typeof window.loadScheduler === 'function') window.loadScheduler();
-
-    setTimeout(() => {
-      document.getElementById('saveSuccess').style.display = 'none';
-      cancelEdit();
-    }, 2000);
-  }).catch(error => {
-      alert("Error saving profile: " + error.message);
-  });
-};
-
-window.generateSmsEmail = generateSmsEmail;
-window.loadProfile = loadProfile;
-window.initProfileListeners = initProfileListeners;
+// Auto-Attach Listeners
+document.addEventListener('DOMContentLoaded', () => {
+    const pInput = document.getElementById('editPhoneNumber');
+    const cInput = document.getElementById('editCarrier');
+    if(pInput) pInput.addEventListener('input', generateSmsEmail);
+    if(cInput) cInput.addEventListener('change', generateSmsEmail);
+});

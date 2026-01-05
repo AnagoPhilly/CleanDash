@@ -252,92 +252,97 @@ resetUI();
 
     // --- 2. ROBUST CANCELLED LIST IMPORT (FORCE INACTIVE) ---
 async function uploadCancelledList(data) {
-log(`Starting Cancelled List Import (${data.length} records)...`);
+    log(`Starting Cancelled List Import (${data.length} records)...`);
 
-// DEBUG: Show us what headers the script actually sees in the first row
-if (data.length > 0) {
-    console.log("Headers detected:", Object.keys(data[0]));
-    log(`ℹ️ Debug: First row headers are: [${Object.keys(data[0]).join(', ')}]`);
-}
+    let batch = db.batch();
+    let count = 0;
+    let skippedCount = 0;
 
-let batch = db.batch();
-let count = 0;
-let skippedCount = 0;
+    // 1. Get Today's Date as a String (YYYY-MM-DD)
+    // This is critical so accounts.js correctly moves the account to the "Inactive" table
+    const todayStr = new Date().toISOString().split('T')[0];
 
-for (const row of data) {
-    // 1. ROBUST ID CHECK: Check all common names for the ID column
-    const pid = row['Client ID'] || row['Clientid'] || row['PID'] || row['Property ID'] || row['Account'] || row['id'];
+    for (const row of data) {
+        // ROBUST ID CHECK
+        const pid = row['Client ID'] || row['Clientid'] || row['PID'] || row['Property ID'] || row['Account'] || row['id'];
 
-    if (!pid) {
-        skippedCount++;
-        continue; // Skip if we still can't find an ID
+        if (!pid) {
+            skippedCount++;
+            continue;
+        }
+
+        const franId = (row['Fran ID'] || row['FranID'] || '').trim().toUpperCase();
+
+        // Date Handling: Use CSV date, or default to TODAY if missing
+        const cancelDateRaw = row['Cancel Date'] || row['CancelDate'];
+        const formattedCancelDate = formatDate(cancelDateRaw);
+        const finalEndDate = formattedCancelDate || todayStr;
+
+        // Capture Reason
+        const customReason = row['Cancel Reason'] || row['Reason'] || row['Notes'] || 'Imported from Cancelled List';
+
+        // Data Cleaning
+        const addr = (row['Site Address'] || row['Address'] || '').trim();
+        const city = (row['Site City'] || row['City'] || '').trim();
+        const state = (row['Site State'] || row['State'] || '').trim() || 'PA';
+        const zip = (row['Site Zip'] || row['Zip'] || '').trim();
+        const fullAddress = [addr, city, state, zip].filter(Boolean).join(', ');
+
+        // --- 2. UPDATE ADMIN MASTER LIST ---
+        const inactivePayloadMaster = {
+            pid: String(pid).trim(),
+            name: row['Service Loc'] || row['Service Location Name'] || '',
+            address: fullAddress,
+            franId: franId,
+            endDate: finalEndDate,
+            status: 'Inactive',
+            inactiveReason: customReason,
+            lastImportedAt: firebase.firestore.FieldValue.serverTimestamp()
+        };
+
+        const masterRef = db.collection('master_client_list').doc(inactivePayloadMaster.pid);
+        batch.set(masterRef, inactivePayloadMaster, { merge: true });
+
+        // --- 3. UPDATE FRANCHISEE ACCOUNT (The Logic You Requested) ---
+        // By targeting `ACC_${pid}`, we find the EXISTING account assigned to John Smith.
+        const accRef = db.collection('accounts').doc(`ACC_${inactivePayloadMaster.pid}`);
+
+        const accPayload = {
+            status: 'Inactive',       // <--- Moves it to Inactive
+            endDate: finalEndDate,    // <--- Ensures visual move in Dashboard
+            inactiveReason: customReason,
+            lastImportedAt: firebase.firestore.FieldValue.serverTimestamp()
+            // NOTE: We do NOT include 'owner' or 'franId' here.
+            // This ensures the account stays assigned to the current owner (John Smith).
+        };
+
+        // Update basic info just in case (Revenue/Name changes)
+        if (inactivePayloadMaster.name) accPayload.name = inactivePayloadMaster.name;
+        if (row['Recur Amt']) accPayload.revenue = parseFloat((row['Recur Amt']||'0').replace(/[$,]/g, ''));
+
+        // { merge: true } is vital: It updates the status fields while keeping the Owner field intact.
+        batch.set(accRef, accPayload, { merge: true });
+
+        count++;
+        if (count % 400 === 0) {
+            await batch.commit();
+            batch = db.batch();
+            log(`Processed ${count} rows...`);
+        }
     }
 
-    const franId = (row['Fran ID'] || row['FranID'] || '').trim().toUpperCase();
-    const cancelDateRaw = row['Cancel Date'] || row['CancelDate'];
-    const formattedCancelDate = formatDate(cancelDateRaw);
-
-    // Basic data cleaning
-    const addr = (row['Site Address'] || row['Address'] || '').trim();
-    const city = (row['Site City'] || row['City'] || '').trim();
-    const state = (row['Site State'] || row['State'] || '').trim() || 'PA';
-    const zip = (row['Site Zip'] || row['Zip'] || '').trim();
-    const fullAddress = [addr, city, state, zip].filter(Boolean).join(', ');
-
-    // 2. Prepare Payload
-    const inactivePayload = {
-        pid: String(pid).trim(), // Ensure ID is a string
-        name: row['Service Loc'] || row['Service Location Name'] || '',
-        address: fullAddress,
-        franId: franId,
-
-        // KEY STATUS UPDATES
-        endDate: formattedCancelDate || firebase.firestore.FieldValue.serverTimestamp(),
-        status: 'Inactive', // FORCE INACTIVE
-        inactiveReason: 'Imported from Cancelled List',
-        lastImportedAt: firebase.firestore.FieldValue.serverTimestamp()
-    };
-
-    // 3. Update ADMIN Master List
-    const masterRef = db.collection('master_client_list').doc(inactivePayload.pid);
-    batch.set(masterRef, inactivePayload, { merge: true });
-
-    // 4. FORCE UPDATE Franchisee Account (Blind Upsert)
-    // We find the account by PID and force it Inactive.
-    const accRef = db.collection('accounts').doc(`ACC_${inactivePayload.pid}`);
-
-    const accPayload = {
-        status: 'Inactive',
-        endDate: inactivePayload.endDate,
-        inactiveReason: inactivePayload.inactiveReason,
-        lastImportedAt: inactivePayload.lastImportedAt
-    };
-
-    if (inactivePayload.name) accPayload.name = inactivePayload.name;
-    if (inactivePayload.revenue) accPayload.revenue = parseFloat((row['Recur Amt']||'0').replace(/[$,]/g, ''));
-
-    batch.set(accRef, accPayload, { merge: true });
-
-    count++;
-    if (count % 400 === 0) {
+    if (count > 0) {
         await batch.commit();
-        batch = db.batch();
-        log(`Processed ${count} rows...`);
+        log(`✅ Cancelled Import Complete. Updated ${count} records to Inactive status.`, 'success');
+    } else {
+        log(`❌ Error: No valid rows found.`, 'error');
     }
-}
 
-if (count > 0) {
-    await batch.commit();
-    log(`✅ Cancelled Import Complete. FORCED ${count} records to Inactive.`, 'success');
-} else {
-    log(`❌ Error: Could not find any valid IDs. Check the debug log above for header names.`, 'error');
-}
+    if (skippedCount > 0) {
+        log(`⚠️ Skipped ${skippedCount} rows due to missing ID.`, 'warn');
+    }
 
-if (skippedCount > 0) {
-    log(`⚠️ Skipped ${skippedCount} rows (Missing 'PID' or 'Client ID').`, 'warn');
-}
-
-resetUI();
+    resetUI();
 }
 
     // --- 3. LEGACY HISTORY IMPORT ---
