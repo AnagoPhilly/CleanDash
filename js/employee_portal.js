@@ -19,42 +19,6 @@ function normalizeDate(date, view) {
     return d;
 }
 
-// --- HELPER: CALCULATE VIEW DATE RANGE (NEW) ---
-function getViewDateRange() {
-    const start = new Date(currentStartDate);
-    const end = new Date(currentStartDate);
-
-    if (currentView === 'month') {
-        // 1st of Month
-        start.setDate(1);
-        start.setHours(0,0,0,0);
-        // Padding (Back 7 days)
-        start.setDate(start.getDate() - 7);
-
-        // End of Month
-        end.setMonth(end.getMonth() + 1);
-        end.setDate(0);
-        // Padding (Forward 7 days)
-        end.setDate(end.getDate() + 7);
-        end.setHours(23,59,59,999);
-
-    } else if (currentView === 'week') {
-        // Sunday
-        const day = start.getDay();
-        start.setDate(start.getDate() - day);
-        start.setHours(0,0,0,0);
-        // Saturday
-        end.setDate(start.getDate() + 6);
-        end.setHours(23,59,59,999);
-
-    } else {
-        // Today
-        start.setHours(0,0,0,0);
-        end.setHours(23,59,59,999);
-    }
-    return { start, end };
-}
-
 // Initial Normalization
 // We don't overwrite global start date aggressively on load, just ensure time is stripped
 currentStartDate.setHours(0,0,0,0);
@@ -111,7 +75,7 @@ auth.onAuthStateChanged(async user => {
     }
 });
 
-// --- DATA LOADING (UPDATED) ---
+// --- DATA LOADING ---
 async function loadMyShifts(employeeId) {
     const loader = document.getElementById('gridLoader');
     const container = document.getElementById('schedulerGrid');
@@ -120,7 +84,6 @@ async function loadMyShifts(employeeId) {
 
     if (loader) loader.classList.add('active');
 
-    // Setup Render Date
     let renderStart = new Date(currentStartDate);
     renderStart.setHours(0,0,0,0);
 
@@ -132,7 +95,7 @@ async function loadMyShifts(employeeId) {
         renderStart.setDate(1);
     }
 
-    // Update Header Text
+    // Header Updates... (Keep existing code)
     if (dateEl) {
         if (currentView === 'month') dateEl.textContent = renderStart.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
         else if (currentView === 'day') dateEl.textContent = currentStartDate.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
@@ -144,35 +107,24 @@ async function loadMyShifts(employeeId) {
     }
 
     try {
-        // --- [CRITICAL UPDATE: DATE FILTERING] ---
-        const { start, end } = getViewDateRange();
-        console.log(`Portal: Fetching shifts from ${start.toLocaleDateString()} to ${end.toLocaleDateString()}`);
-
-        let q = db.collection('jobs')
-            .where('employeeId', '==', employeeId)
-            .where('startTime', '>=', start)
-            .where('startTime', '<=', end);
-
-        const allSnap = await q.get();
-        // -----------------------------------------
-
+        const allSnap = await db.collection('jobs').where('employeeId', '==', employeeId).get();
         const jobsForRender = [];
-        const accountIds = new Set();
+        const accountIds = new Set(); // To track unique accounts
         let totalHours = 0;
 
+        // 1. Process Jobs First
         allSnap.forEach(doc => {
             const j = doc.data();
             j.id = doc.id;
             j.start = j.startTime ? j.startTime.toDate() : new Date();
             j.end = j.endTime ? j.endTime.toDate() : new Date();
 
+            // Collect Account ID
             if (j.accountId) accountIds.add(j.accountId);
 
-            // Calculate hours for completed jobs in this view
             if (j.status === 'Completed' && j.actualStartTime && j.actualEndTime) {
                  const jobEnd = j.actualEndTime.toDate();
-                 // Simple check: is this job within the general render window?
-                 if (jobEnd >= start && jobEnd <= end) {
+                 if (Math.abs(jobEnd - renderStart) < 2592000000) {
                     const diffMs = jobEnd - j.actualStartTime.toDate();
                     totalHours += diffMs / (1000 * 60 * 60);
                  }
@@ -181,8 +133,12 @@ async function loadMyShifts(employeeId) {
         });
 
         // 2. Fetch Account Details (Alarm Codes)
+        // We do this in parallel for efficiency
         const accountMap = {};
         if (accountIds.size > 0) {
+            // Note: 'in' queries are limited to 10 items in Firebase.
+            // If you have >10 accounts, we might need a loop. Assuming <10 active accounts for now.
+            // A safer way without limits is Promise.all
             const accountPromises = Array.from(accountIds).map(id => db.collection('accounts').doc(id).get());
             const accountSnaps = await Promise.all(accountPromises);
 
@@ -193,13 +149,12 @@ async function loadMyShifts(employeeId) {
             });
         }
 
-        // 3. Attach Alarm Codes
+        // 3. Attach Alarm Codes to Jobs
         jobsForRender.forEach(job => {
             job.alarmCode = accountMap[job.accountId] || null;
         });
 
         if (hoursDisplay) hoursDisplay.textContent = totalHours.toFixed(2);
-
         updateNextShiftDisplay(jobsForRender);
 
         if (container) {
@@ -214,12 +169,8 @@ async function loadMyShifts(employeeId) {
         }
 
     } catch (e) {
-        console.error("Portal Data Error:", e);
-        if (e.message.includes("requires an index")) {
-            alert("⚠️ SYSTEM UPGRADE: \n\nPlease tell your Admin to open the console and click the link to create the new database index.");
-        } else {
-            if (container) container.innerHTML = '<p style="text-align:center;">Error loading schedule.</p>';
-        }
+        console.error(e);
+        if (container) container.innerHTML = '<p style="text-align:center;">Error loading schedule.</p>';
     } finally {
         if (loader) loader.classList.remove('active');
     }
@@ -526,40 +477,16 @@ async function handleGeoAction(jobId, accountId, type) {
     btn.textContent = "Locating...";
     btn.disabled = true;
 
-    // 1. Check for Secure Context (Required for Mobile)
-    if (window.location.protocol !== 'https:' && window.location.hostname !== 'localhost') {
-        alert("⚠️ SECURITY ERROR:\n\nMobile GPS requires a secure (HTTPS) connection.\n\nYou are currently on HTTP. Please use the secure link.");
-        btn.disabled = false;
-        btn.textContent = originalText;
-        return;
-    }
-
     if (!navigator.geolocation) {
-        alert("GPS not supported by this browser.");
+        alert("GPS not supported.");
         btn.disabled = false;
         btn.textContent = originalText;
         return;
     }
-
-    const geoOptions = {
-        enableHighAccuracy: true,
-        timeout: 10000, // Wait 10 seconds max
-        maximumAge: 0
-    };
 
     navigator.geolocation.getCurrentPosition(async (pos) => {
         const uLat = pos.coords.latitude;
         const uLng = pos.coords.longitude;
-        const accuracy = pos.coords.accuracy;
-
-        // Warn if accuracy is very poor (over 100 meters)
-        if (accuracy > 100) {
-            if(!confirm(`⚠️ Low GPS Accuracy (${Math.round(accuracy)}m).\n\nWe might calculate your distance incorrectly.\n\nTry checking in anyway?`)) {
-                btn.disabled = false;
-                btn.textContent = originalText;
-                return;
-            }
-        }
 
         try {
             const accDoc = await db.collection('accounts').doc(accountId).get();
@@ -596,17 +523,10 @@ async function handleGeoAction(jobId, accountId, type) {
             btn.textContent = originalText;
         }
     }, (err) => {
-        // More descriptive error handling
-        let msg = "Unknown Error";
-        switch(err.code) {
-            case 1: msg = "Permission Denied. Please allow Location access in your browser settings."; break;
-            case 2: msg = "Position Unavailable. Your GPS signal is weak."; break;
-            case 3: msg = "Timeout. It took too long to find you."; break;
-        }
-        alert("GPS Error: " + msg);
+        alert("GPS Error: " + err.message);
         btn.disabled = false;
         btn.textContent = originalText;
-    }, geoOptions);
+    }, { enableHighAccuracy: true });
 }
 
 function getDistanceFromLatLonInKm(lat1, lon1, lat2, lon2) {
