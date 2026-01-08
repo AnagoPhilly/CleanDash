@@ -20,6 +20,46 @@ let currentEmpFilter = 'ALL';
 let showEmployeeColors = false;
 let employeeColors = {};
 
+// --- HELPER: CALCULATE VIEW DATE RANGE ---
+function getViewDateRange() {
+    const start = new Date(currentDate);
+    const end = new Date(currentDate);
+
+    if (currentView === 'month') {
+        // 1. Get First Day of Month
+        start.setDate(1);
+        start.setHours(0,0,0,0);
+
+        // 2. Padding: Go back 7 days to catch previous month's trailing days
+        start.setDate(start.getDate() - 7);
+
+        // 3. Get Last Day of Month
+        end.setMonth(end.getMonth() + 1);
+        end.setDate(0);
+
+        // 4. Padding: Go forward 7 days to catch next month's leading days
+        end.setDate(end.getDate() + 7);
+        end.setHours(23,59,59,999);
+
+    } else if (currentView === 'week') {
+        // Start of week (Sunday)
+        const day = start.getDay();
+        start.setDate(start.getDate() - day);
+        start.setHours(0,0,0,0);
+
+        // End of week (Saturday)
+        end.setDate(start.getDate() + 6);
+        end.setHours(23,59,59,999);
+
+    } else {
+        // Day view: Start to End of today
+        start.setHours(0,0,0,0);
+        end.setHours(23,59,59,999);
+    }
+
+    return { start, end };
+}
+
 // --- 3. NAVIGATION LISTENER ---
 document.addEventListener('click', function(e) {
     const navItem = e.target.closest('.nav-item[data-page="scheduler"]');
@@ -62,7 +102,7 @@ async function loadScheduler() {
         container.style.margin = '0';
 
         // Calculate height based on viewport minus header
-        container.style.height = 'calc(100vh - 170px)';
+        container.style.height = '100%';
         container.style.width = '100%';
 
         // Default to hidden (Month View uses this), Week view overrides it
@@ -153,11 +193,24 @@ async function loadScheduler() {
 }
 
 async function fetchJobs() {
-    const q = window.currentUser.email === 'admin@cleandash.com'
-        ? db.collection('jobs')
-        : db.collection('jobs').where('owner', '==', window.currentUser.email);
+    // --- PERFORMANCE FIX: DATE FILTERING ---
+    const { start, end } = getViewDateRange();
+    console.log(`Fetching jobs from ${start.toLocaleDateString()} to ${end.toLocaleDateString()}`);
+
+    let q = db.collection('jobs');
+
+    // Handle Admin vs Owner
+    if (window.currentUser.email !== 'admin@cleandash.com') {
+        q = q.where('owner', '==', window.currentUser.email);
+    }
+
+    // Apply Date Range Filter (The key to speed!)
+    q = q.where('startTime', '>=', start)
+         .where('startTime', '<=', end);
 
     const snap = await q.get();
+    // ---------------------------------------
+
     const jobs = [];
     snap.forEach(doc => {
         const j = doc.data();
