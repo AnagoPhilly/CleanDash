@@ -526,16 +526,40 @@ async function handleGeoAction(jobId, accountId, type) {
     btn.textContent = "Locating...";
     btn.disabled = true;
 
-    if (!navigator.geolocation) {
-        alert("GPS not supported.");
+    // 1. Check for Secure Context (Required for Mobile)
+    if (window.location.protocol !== 'https:' && window.location.hostname !== 'localhost') {
+        alert("⚠️ SECURITY ERROR:\n\nMobile GPS requires a secure (HTTPS) connection.\n\nYou are currently on HTTP. Please use the secure link.");
         btn.disabled = false;
         btn.textContent = originalText;
         return;
     }
 
+    if (!navigator.geolocation) {
+        alert("GPS not supported by this browser.");
+        btn.disabled = false;
+        btn.textContent = originalText;
+        return;
+    }
+
+    const geoOptions = {
+        enableHighAccuracy: true,
+        timeout: 10000, // Wait 10 seconds max
+        maximumAge: 0
+    };
+
     navigator.geolocation.getCurrentPosition(async (pos) => {
         const uLat = pos.coords.latitude;
         const uLng = pos.coords.longitude;
+        const accuracy = pos.coords.accuracy;
+
+        // Warn if accuracy is very poor (over 100 meters)
+        if (accuracy > 100) {
+            if(!confirm(`⚠️ Low GPS Accuracy (${Math.round(accuracy)}m).\n\nWe might calculate your distance incorrectly.\n\nTry checking in anyway?`)) {
+                btn.disabled = false;
+                btn.textContent = originalText;
+                return;
+            }
+        }
 
         try {
             const accDoc = await db.collection('accounts').doc(accountId).get();
@@ -572,10 +596,17 @@ async function handleGeoAction(jobId, accountId, type) {
             btn.textContent = originalText;
         }
     }, (err) => {
-        alert("GPS Error: " + err.message);
+        // More descriptive error handling
+        let msg = "Unknown Error";
+        switch(err.code) {
+            case 1: msg = "Permission Denied. Please allow Location access in your browser settings."; break;
+            case 2: msg = "Position Unavailable. Your GPS signal is weak."; break;
+            case 3: msg = "Timeout. It took too long to find you."; break;
+        }
+        alert("GPS Error: " + msg);
         btn.disabled = false;
         btn.textContent = originalText;
-    }, { enableHighAccuracy: true });
+    }, geoOptions);
 }
 
 function getDistanceFromLatLonInKm(lat1, lon1, lat2, lon2) {
