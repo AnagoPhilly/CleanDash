@@ -56,37 +56,40 @@ auth.onAuthStateChanged(async user => {
         if (exitBtn) exitBtn.style.display = 'block';
     }
 
-    // Default Load
+    // Default Load (Fetches data)
     loadGodModeData();
+
+    // FORCE DASHBOARD VIEW (Fixes the overlapping page issue)
+    switchAdminTab('dashboard');
+
     document.getElementById('addOwnerModal').style.display = 'none';
 });
 
 // --- NAVIGATION ---
 // --- TAB SWITCHING LOGIC ---
 window.switchAdminTab = function(tab) {
-    // 1. UPDATE THIS LIST: Add 'import' so the code knows to un-highlight it later
-    const allTabs = ['users', 'admins', 'accounts', 'import'];
+    // 1. DEFINE ALL TABS (Must match HTML IDs exactly)
+    const allTabs = ['dashboard', 'users', 'admins', 'accounts', 'import'];
 
-    // 2. Loop through all to hide them
+    // 2. HIDE EVERYTHING FIRST
     allTabs.forEach(t => {
         const navEl = document.getElementById(`nav-${t}`);
         const viewEl = document.getElementById(`view-${t}`);
 
-        if (navEl) navEl.classList.remove('active'); // Turn off green highlight
+        if (navEl) navEl.classList.remove('active'); // Turn off highlight
         if (viewEl) viewEl.style.display = 'none';   // Hide the page content
     });
 
-    // 3. Activate the specific one clicked
+    // 3. SHOW THE SELECTED TAB
     const activeNav = document.getElementById(`nav-${tab}`);
     const activeView = document.getElementById(`view-${tab}`);
 
-    if (activeNav) activeNav.classList.add('active'); // Turn on green highlight
-    if (activeView) activeView.style.display = 'block'; // Show content
+    if (activeNav) activeNav.classList.add('active'); // Highlight button
+    if (activeView) activeView.style.display = 'block'; // Show page
 
-    // 4. Trigger Data Load if needed
-    if (tab === 'accounts') {
-        loadMasterAccounts();
-    }
+    // 4. TRIGGER DATA LOADS (Lazy Loading)
+    if (tab === 'dashboard') loadAdminDashboard();
+    if (tab === 'accounts') loadMasterAccounts();
 };
 
 // --- VIEW 1: FRANCHISE OWNERS & DATA LOADER ---
@@ -795,5 +798,616 @@ window.loadMasterAccounts = async function() {
         } else {
              tbody.innerHTML = `<tr><td colspan="7" style="color:red; text-align:center;">Error: ${e.message}</td></tr>`;
         }
+    }
+};
+
+// --- ADMIN DATA IMPORTER LOGIC ---
+
+// Helper: Sleep for rate limiting (Geocoding)
+const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+
+// Helper: Format Date
+function formatDate(dateStr) {
+    if(!dateStr) return null;
+    const parts = dateStr.trim().replace(/-/g, '/').split('/');
+    if(parts.length === 3) {
+        let y = parts[2];
+        if (y.length === 2) y = "20" + y;
+        const m = parts[0].padStart(2,'0');
+        const d = parts[1].padStart(2,'0');
+        return `${y}-${m}-${d}`;
+    }
+    return null;
+}
+
+// Helper: Geocoding
+async function getCoordinates(street, city, state, zip) {
+    if (!street && !city) return null;
+    try {
+        const key = window.LOCATIONIQ_KEY || "pk.c92dcfda3c6ea1c6da25f0c36c34c99e";
+        const baseUrl = "https://us1.locationiq.com/v1/search.php";
+        const params = new URLSearchParams({
+            key: key,
+            street: street,
+            city: city,
+            state: state,
+            postalcode: zip,
+            format: 'json',
+            limit: 1,
+            countrycodes: 'us'
+        });
+
+        const res = await fetch(`${baseUrl}?${params.toString()}`);
+        const data = await res.json();
+        if (data && data[0]) return { lat: parseFloat(data[0].lat), lng: parseFloat(data[0].lon) };
+    } catch (e) { console.log("Geo error", e); }
+    return null;
+}
+
+// Helper: Get Map of FranIDs to Owner Emails
+async function getFranIdMap() {
+    const map = {};
+    const snap = await db.collection('users').where('role', '==', 'owner').get();
+    snap.forEach(doc => {
+        const data = doc.data();
+        if (data.franId) {
+            map[data.franId.toUpperCase()] = data.email;
+        }
+    });
+    return map;
+}
+
+// --- MAIN PROCESS FUNCTION (Called by the Button) ---
+window.processFile = function() {
+    const file = document.getElementById('uploadCsv').files[0];
+    const mode = document.getElementById('importType').value;
+
+    if(!file) return alert("Please select a CSV file first.");
+
+    const btn = document.getElementById('btnUpload');
+    const statusEl = document.getElementById('status');
+    const logEl = document.getElementById('log');
+
+    btn.disabled = true;
+    btn.textContent = "Processing...";
+    statusEl.textContent = "Parsing CSV...";
+    logEl.innerHTML = '';
+
+    if (typeof Papa === 'undefined') {
+        btn.disabled = false;
+        return alert("Error: PapaParse library not loaded. Check internet connection.");
+    }
+
+    Papa.parse(file, {
+        header: true,
+        skipEmptyLines: true,
+        transformHeader: h => h.trim(),
+        complete: function(results) {
+            if(mode === 'master') uploadMasterList(results.data, btn, statusEl, logEl);
+            else if(mode === 'cancelled') uploadCancelledList(results.data, btn, statusEl, logEl);
+            else uploadHistoryBook(results.data, btn, statusEl, logEl);
+        },
+        error: function(err) {
+            alert("CSV Error: " + err.message);
+            btn.disabled = false;
+            btn.textContent = "Start Import";
+        }
+    });
+};
+
+// --- IMPORT FUNCTION: MASTER LIST ---
+async function uploadMasterList(data, btn, statusEl, logEl) {
+    statusEl.textContent = `Importing ${data.length} Master Records...`;
+    const doGeo = document.getElementById('geoEnabled').checked;
+
+    // Get Owners Map for linking
+    const franMap = await getFranIdMap();
+
+    let batch = db.batch();
+    let count = 0;
+    let ops = 0;
+
+    for (const row of data) {
+        const pid = row['Client ID'] || row['Clientid'];
+        if (!pid) continue;
+
+        // Extract Data
+        const addr = (row['Site Address'] || '').trim();
+        const city = (row['Site City'] || '').trim();
+        const state = (row['Site State'] || '').trim() || 'PA';
+        const zip = (row['Site Zip'] || '').trim();
+        const fullAddress = [addr, city, state, zip].filter(Boolean).join(', ');
+        const franId = (row['Fran ID'] || '').trim().toUpperCase();
+
+        // Geocoding (Slows down import significantly if enabled)
+        let lat = null, lng = null;
+        if (doGeo && addr.length > 3) {
+            // Update the main status text immediately
+            statusEl.textContent = `Geocoding ${count + 1}/${data.length}: ${row['Service Loc'] || 'Unknown'}...`;
+
+            await sleep(650); // Rate limit
+            const coords = await getCoordinates(addr, city, state, zip);
+
+            if (coords) {
+                lat = coords.lat;
+                lng = coords.lng;
+
+                // Print SUCCESS to the black box log
+                logEl.innerHTML += `<div style="color:#0d9488; font-size:0.8rem;">📍 Found: ${row['Service Loc']}</div>`;
+                logEl.scrollTop = logEl.scrollHeight; // Auto-scroll down
+            } else {
+                // Print FAILURE to the black box log
+                logEl.innerHTML += `<div style="color:#ef4444; font-size:0.8rem;">❌ Geo Fail: ${row['Service Loc']}</div>`;
+            }
+        }
+
+        const clientData = {
+            pid: pid,
+            status: 'Active',
+            name: row['Service Loc'] || row['Service Location Name'] || '',
+            address: fullAddress,
+            street: addr, city: city, state: state, zip: zip,
+            revenue: parseFloat((row['Recur Amt']||'0').replace(/[$,]/g, '')),
+            contactName: row['Contact Name'] || '',
+            contactPhone: row['Contact Phone'] || '',
+            contactEmail: row['Contact Email'] || '',
+            franId: franId,
+            startDate: formatDate(row['Start Date']),
+            lastImportedAt: firebase.firestore.FieldValue.serverTimestamp()
+        };
+
+        if (lat) { clientData.lat = lat; clientData.lng = lng; }
+
+        // 1. Update Master List
+        const masterRef = db.collection('master_client_list').doc(String(pid).trim());
+        batch.set(masterRef, clientData, { merge: true });
+
+        // 2. Sync to Franchisee Account (if owner exists)
+        const ownerEmail = franMap[franId];
+        if (ownerEmail) {
+            const accRef = db.collection('accounts').doc(`ACC_${pid}`);
+            batch.set(accRef, { ...clientData, owner: ownerEmail }, { merge: true });
+        } else {
+             logEl.innerHTML += `<div style="color:orange;">⚠️ Orphan: Client ${pid} (FranID: ${franId}) has no owner.</div>`;
+        }
+
+        count++;
+        ops++;
+
+        // Commit batches of 400
+        if (ops >= 400) {
+            await batch.commit();
+            batch = db.batch();
+            ops = 0;
+            statusEl.textContent = `Saved ${count} records...`;
+        }
+    }
+
+    if (ops > 0) await batch.commit();
+
+    statusEl.textContent = "✅ Import Complete!";
+    alert(`Successfully processed ${count} records.`);
+    btn.disabled = false;
+    btn.textContent = "Start Import";
+
+    // Refresh Table
+    if(window.loadMasterAccounts) window.loadMasterAccounts();
+}
+
+// --- IMPORT FUNCTION: CANCELLED LIST ---
+async function uploadCancelledList(data, btn, statusEl, logEl) {
+    statusEl.textContent = `Processing ${data.length} Cancellations...`;
+    let batch = db.batch();
+    let count = 0;
+    let ops = 0;
+    const todayStr = new Date().toISOString().split('T')[0];
+
+    for (const row of data) {
+        const pid = row['Client ID'] || row['Clientid'] || row['PID'];
+        if (!pid) continue;
+
+        const cancelDateRaw = row['Cancel Date'] || row['CancelDate'];
+        const formattedCancelDate = formatDate(cancelDateRaw) || todayStr;
+        const customReason = row['Cancel Reason'] || 'Imported from Cancelled List';
+
+        // Update Master
+        const masterRef = db.collection('master_client_list').doc(String(pid).trim());
+        batch.set(masterRef, {
+            status: 'Inactive',
+            endDate: formattedCancelDate,
+            inactiveReason: customReason
+        }, { merge: true });
+
+        // Update Franchisee Account
+        const accRef = db.collection('accounts').doc(`ACC_${pid}`);
+        batch.set(accRef, {
+            status: 'Inactive',
+            endDate: formattedCancelDate,
+            inactiveReason: customReason
+        }, { merge: true });
+
+        count++;
+        ops++;
+
+        if (ops >= 400) {
+            await batch.commit();
+            batch = db.batch();
+            ops = 0;
+        }
+    }
+
+    if (ops > 0) await batch.commit();
+
+    statusEl.textContent = "✅ Cancellations Processed";
+    btn.disabled = false;
+    btn.textContent = "Start Import";
+    if(window.loadMasterAccounts) window.loadMasterAccounts();
+}
+
+// --- IMPORT FUNCTION: HISTORY (Legacy) ---
+async function uploadHistoryBook(data, btn, statusEl, logEl) {
+    btn.disabled = false;
+    btn.textContent = "Start Import";
+    alert("History import logic placeholder executed.");
+}
+
+// --- UTILS for UI ---
+window.wipeMasterList = async function() {
+    if(!confirm("⚠️ DANGER: Delete ALL Master Client records?")) return;
+    if(prompt("Type DELETE to confirm") !== "DELETE") return;
+
+    const snap = await db.collection('master_client_list').get();
+    const btn = document.querySelector('button[onclick="wipeMasterList()"]');
+    btn.textContent = "Deleting...";
+
+    let batch = db.batch();
+    let count = 0;
+    for(const doc of snap.docs) {
+        batch.delete(doc.ref);
+        count++;
+        if(count % 400 === 0) { await batch.commit(); batch = db.batch(); }
+    }
+    await batch.commit();
+    btn.textContent = "Wipe Master Data";
+    alert("Master List Wiped.");
+    if(window.loadMasterAccounts) window.loadMasterAccounts();
+};
+
+
+// 1. Initialize & Load the Map
+// --- ADMIN DASHBOARD (MAP) LOGIC ---
+
+let adminMap = null;
+
+// GLOBAL DATA STORE (To avoid re-fetching when filtering)
+let mapData = {
+    owners: [],
+    accounts: [],
+    employees: []
+};
+
+// GLOBAL LAYERS (Used for Toggling)
+let layers = {
+    owners: null,
+    accounts: null,
+    employees: null
+};
+
+// 1. HELPER: Smart Geocode for Owners
+async function smartGeocodeOwner(address) {
+    try {
+        const key = window.LOCATIONIQ_KEY || "pk.c92dcfda3c6ea1c6da25f0c36c34c99e";
+        const url = `https://us1.locationiq.com/v1/search.php?key=${key}&q=${encodeURIComponent(address)}&format=json&limit=1&countrycodes=us`;
+        const res = await fetch(url);
+        const data = await res.json();
+        if (data && data[0]) {
+            return { lat: parseFloat(data[0].lat), lng: parseFloat(data[0].lon) };
+        }
+    } catch (e) { console.warn("Geo fail:", e); }
+    return null;
+}
+
+// 2. TOGGLE & FILTER FUNCTION (HYBRID ID + EMAIL MATCH)
+window.updateMapLayers = function() {
+    if (!adminMap) return;
+
+    // A. Get Controls
+    const showAcc = document.getElementById('toggleLayerAccounts') ? document.getElementById('toggleLayerAccounts').checked : true;
+    const showOwn = document.getElementById('toggleLayerOwners') ? document.getElementById('toggleLayerOwners').checked : true;
+    const showEmp = document.getElementById('toggleLayerEmployees') ? document.getElementById('toggleLayerEmployees').checked : true;
+    const selectedOwnerId = document.getElementById('mapOwnerFilter') ? document.getElementById('mapOwnerFilter').value : 'all';
+
+    console.log("Filtering Map... Selected:", selectedOwnerId);
+
+    // B. Clear Layers
+    if (layers.owners) layers.owners.clearLayers();
+    if (layers.accounts) layers.accounts.clearLayers();
+    if (layers.employees) layers.employees.clearLayers();
+
+    // C. Define Icons
+    const RedIcon = new L.Icon({ iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-red.png', shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/0.7.7/images/marker-shadow.png', iconSize: [25, 41], iconAnchor: [12, 41], popupAnchor: [1, -34], shadowSize: [41, 41] });
+    const BlueIcon = new L.Icon({ iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-blue.png', shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/0.7.7/images/marker-shadow.png', iconSize: [25, 41], iconAnchor: [12, 41], popupAnchor: [1, -34], shadowSize: [41, 41] });
+    const GreenIcon = new L.Icon({ iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-green.png', shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/0.7.7/images/marker-shadow.png', iconSize: [25, 41], iconAnchor: [12, 41], popupAnchor: [1, -34], shadowSize: [41, 41] });
+
+    // D. Filter & Re-Draw Owners
+    const ownerObj = mapData.owners.find(o => o.id === selectedOwnerId);
+
+    mapData.owners.forEach(d => {
+        if (selectedOwnerId === 'all' || d.id === selectedOwnerId) {
+            if (d.lat && d.lng) {
+                L.marker([d.lat, d.lng], { icon: RedIcon })
+                    .bindPopup(`<b>👑 OWNER: ${d.name}</b><br>${d.email}`)
+                    .addTo(layers.owners);
+            }
+        }
+    });
+
+    // E. Filter & Re-Draw Accounts
+    mapData.accounts.forEach(d => {
+        let match = true;
+        if (selectedOwnerId !== 'all' && ownerObj) {
+            const aId = String(d.franId || '').toLowerCase();
+            const oId = String(ownerObj.franId || '').toLowerCase();
+            if (aId !== oId) match = false;
+        }
+
+        if (match && d.lat && d.lng) {
+            L.marker([d.lat, d.lng], { icon: BlueIcon })
+                .bindPopup(`<b>🏢 ACCOUNT: ${d.name}</b><br>${d.address}`)
+                .addTo(layers.accounts);
+        }
+    });
+
+    // F. Filter & Re-Draw Employees (HYBRID MATCHING)
+    mapData.employees.forEach(d => {
+        let match = true;
+
+        if (selectedOwnerId !== 'all' && ownerObj) {
+            match = false; // Default hidden
+
+            // 1. PREPARE THE TARGETS (The Owner's Identifiers)
+            // We convert everything to lowercase strings to ensure "DIAZ" matches "Diaz"
+            const targetFranId = String(ownerObj.franId || '').toLowerCase().trim(); // e.g. "diaz"
+            const targetEmail = String(ownerObj.email || '').toLowerCase().trim();   // e.g. "david@..."
+            const targetName = String(ownerObj.name || '').toLowerCase().trim();     // e.g. "david & andrea"
+
+            // 2. PREPARE THE EMPLOYEE LINK
+            // The employee might list the owner by ID, Email, OR Name. We check the 'owner' field.
+            const empLink = String(d.owner || d.ownerEmail || '').toLowerCase().trim();
+
+            // 3. THE MATCH LOGIC
+
+            // A. Check FRANCHISE ID (Primary Request)
+            if (targetFranId && empLink === targetFranId) match = true;
+
+            // B. Check EMAIL (For Rondell)
+            if (targetEmail && empLink === targetEmail) match = true;
+
+            // C. Check NAME (Fallback)
+            if (targetName && empLink === targetName) match = true;
+
+            // D. "Contains" Check (Handles "User: Diaz" or "ID: GOULD")
+            // Only runs if the ID is at least 3 chars long to avoid bad matches
+            if (targetFranId.length > 2 && empLink.includes(targetFranId)) match = true;
+        }
+
+        // Draw ONLY if Matched
+        if (match && d.lat && d.lng) {
+            L.marker([d.lat, d.lng], { icon: GreenIcon })
+                .bindPopup(`<b>👷 EMPLOYEE: ${d.name}</b><br>Linked to: ${d.owner}`)
+                .addTo(layers.employees);
+        }
+    });
+
+    // G. Apply to Map
+    if (showOwn) adminMap.addLayer(layers.owners); else adminMap.removeLayer(layers.owners);
+    if (showAcc) adminMap.addLayer(layers.accounts); else adminMap.removeLayer(layers.accounts);
+    if (showEmp) adminMap.addLayer(layers.employees); else adminMap.removeLayer(layers.employees);
+};
+
+// 3. MAIN LOAD FUNCTION (NOW AUTO-GEOCODES EMPLOYEES!)
+window.loadAdminDashboard = async function() {
+    console.log("Loading Admin Dashboard...");
+
+    // UI Stats Elements
+    const statAcc = document.getElementById('mapStatAccounts');
+    const statOwn = document.getElementById('mapStatOwners');
+    const statEmp = document.getElementById('mapStatEmployees');
+    const filterSelect = document.getElementById('mapOwnerFilter');
+
+    if(statAcc) statAcc.innerText = '...';
+
+    // Initialize Map if needed
+    if (!adminMap) {
+        adminMap = L.map('adminMap').setView([39.9526, -75.1652], 10);
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            maxZoom: 19,
+            attribution: '© OpenStreetMap'
+        }).addTo(adminMap);
+    }
+
+    // Initialize Layer Groups
+    if (!layers.owners) layers.owners = L.layerGroup();
+    if (!layers.accounts) layers.accounts = L.layerGroup();
+    if (!layers.employees) layers.employees = L.layerGroup();
+
+    try {
+        const [usersSnap, accountsSnap, employeesSnap] = await Promise.all([
+            db.collection('users').where('role', '==', 'owner').get(),
+            db.collection('accounts').where('status', '==', 'Active').get(),
+            db.collection('employees').where('status', '==', 'Active').get()
+        ]);
+
+        if(statAcc) statAcc.innerText = accountsSnap.size;
+        if(statOwn) statOwn.innerText = usersSnap.size;
+        if(statEmp) statEmp.innerText = employeesSnap.size;
+
+        // --- STORE DATA GLOBALLY FOR FILTERING ---
+        mapData.owners = [];
+        mapData.accounts = [];
+        mapData.employees = [];
+
+        // 1. PROCESS OWNERS (Populate Dropdown & Fix Pins)
+        if (filterSelect) filterSelect.innerHTML = '<option value="all">-- Show All Owners --</option>';
+
+        const ownerPromises = usersSnap.docs.map(async doc => {
+            const d = doc.data();
+            d.id = doc.id;
+            mapData.owners.push(d);
+
+            // Add to Dropdown
+            if (filterSelect) {
+                const opt = document.createElement('option');
+                opt.value = doc.id;
+                opt.innerText = `${d.name} (${d.franId || '?'})`;
+                filterSelect.appendChild(opt);
+            }
+
+            // Self-Heal Owner Pins
+            if ((!d.lat || !d.lng) && (d.address || d.street)) {
+                const queryAddr = d.address || `${d.street || ''} ${d.city || ''} ${d.state || ''} ${d.zip || ''}`;
+                if (queryAddr.trim().length > 5) {
+                    const coords = await smartGeocodeOwner(queryAddr);
+                    if (coords) {
+                        d.lat = coords.lat; d.lng = coords.lng;
+                        await db.collection('users').doc(doc.id).update({ lat: coords.lat, lng: coords.lng });
+                    }
+                }
+            }
+        });
+        await Promise.all(ownerPromises);
+
+        // 2. PROCESS ACCOUNTS
+        accountsSnap.forEach(doc => {
+            const d = doc.data();
+            d.id = doc.id;
+            mapData.accounts.push(d);
+        });
+
+        // 3. PROCESS EMPLOYEES (NEW: AUTO-GEOCODE FIX)
+        const empPromises = employeesSnap.docs.map(async doc => {
+            const d = doc.data();
+            d.id = doc.id;
+
+            // CHECK: Does Employee have address but NO Coords?
+            // If so, we fix it right now.
+            if ((!d.lat || !d.lng) && d.address) {
+                console.log(`Fixing map pin for employee: ${d.name}...`);
+                const coords = await smartGeocodeOwner(d.address);
+                if (coords) {
+                    d.lat = coords.lat;
+                    d.lng = coords.lng;
+                    // Save to DB so it loads instantly next time
+                    await db.collection('employees').doc(doc.id).update({ lat: coords.lat, lng: coords.lng });
+                }
+            }
+            mapData.employees.push(d);
+        });
+        await Promise.all(empPromises);
+
+        // --- DRAW INITIAL MAP ---
+        updateMapLayers();
+
+        // Fit Bounds
+        const allPoints = [];
+        mapData.owners.forEach(d => { if(d.lat) allPoints.push([d.lat, d.lng]); });
+        mapData.accounts.forEach(d => { if(d.lat) allPoints.push([d.lat, d.lng]); });
+
+        if (allPoints.length > 0) {
+            adminMap.fitBounds(allPoints, { padding: [50, 50] });
+        }
+        setTimeout(() => { adminMap.invalidateSize(); }, 300);
+
+    } catch (e) {
+        console.error("Admin Dashboard Error:", e);
+    }
+};
+
+// --- UTILITY: Check Master Record Count ---
+window.checkRecordCount = async function() {
+    const btn = document.querySelector('button[onclick="checkRecordCount()"]');
+    const originalText = btn ? btn.textContent : "Check Master Count";
+
+    if(btn) {
+        btn.textContent = "Counting...";
+        btn.disabled = true;
+    }
+
+    try {
+        // Count documents in the master list collection
+        const snap = await db.collection('master_client_list').get();
+        alert(`Total Master Records in Database: ${snap.size}`);
+    } catch (e) {
+        console.error(e);
+        alert("Error reading database: " + e.message);
+    } finally {
+        if(btn) {
+            btn.textContent = originalText;
+            btn.disabled = false;
+        }
+    }
+};
+
+// --- NEW TOOL: REPAIR MISSING LOCATIONS ---
+window.repairEmployeeLocations = async function() {
+    const btn = document.querySelector('button[onclick="repairEmployeeLocations()"]');
+    if(btn) { btn.innerText = "⏳ Fixing..."; btn.disabled = true; }
+
+    try {
+        console.log("Starting Geo-Repair...");
+        const snapshot = await db.collection('employees').where('status', '==', 'Active').get();
+        let fixedCount = 0;
+
+        // Process sequentially to respect API limits
+        for (const doc of snapshot.docs) {
+            const d = doc.data();
+
+            // IF missing coords BUT has address
+            if ((!d.lat || !d.lng) && d.address) {
+                console.log(`Attempting to geocode: ${d.name} (${d.address})`);
+
+                // 1. Clean Address (Fix common typos like 'Pa.' instead of 'PA')
+                let cleanAddr = d.address.replace(/Pa\./gi, 'PA').replace(/Nj/gi, 'NJ');
+
+                // 2. Fetch Coords
+                const coords = await smartGeocodeOwner(cleanAddr);
+
+                if (coords) {
+                    console.log(` -> Success! Lat: ${coords.lat}, Lng: ${coords.lng}`);
+
+                    // 3. Save to DB
+                    await db.collection('employees').doc(doc.id).update({
+                        lat: coords.lat,
+                        lng: coords.lng
+                    });
+
+                    // 4. Update Local Data Immediately
+                    const localEmp = mapData.employees.find(e => e.id === doc.id);
+                    if (localEmp) {
+                        localEmp.lat = coords.lat;
+                        localEmp.lng = coords.lng;
+                    }
+                    fixedCount++;
+                } else {
+                    console.warn(` -> Failed to find location for: ${cleanAddr}`);
+                }
+
+                // Tiny pause to be nice to the API
+                await new Promise(r => setTimeout(r, 600));
+            }
+        }
+
+        if (fixedCount > 0) {
+            alert(`✅ Successfully located and pinned ${fixedCount} employees! The map will now update.`);
+            updateMapLayers(); // Redraw map immediately
+        } else {
+            alert("No employees with valid addresses were missing pins. (Check console for failures)");
+        }
+
+    } catch (e) {
+        console.error("Repair failed:", e);
+        alert("Error fixing pins: " + e.message);
+    } finally {
+        if(btn) { btn.innerText = "📍 Fix Missing Pins"; btn.disabled = false; }
     }
 };

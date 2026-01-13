@@ -134,6 +134,10 @@
         .btn-disabled { background: #9ca3af !important; cursor: not-allowed; opacity: 0.7; }
 
     </style>
+
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
 </head>
 <body>
 
@@ -147,7 +151,10 @@
             <div style="font-family: monospace; font-size: 0.8rem;">Administrator Access</div>
         </div>
         <nav class="nav">
-            <div id="nav-users" class="nav-item active" onclick="switchAdminTab('users')">Franchise Owners</div>
+            <div id="nav-dashboard" class="nav-item active" onclick="switchAdminTab('dashboard')">Dashboard</div>
+
+            <div id="nav-users" class="nav-item" onclick="switchAdminTab('users')">Franchise Owners</div>
+
             <div id="nav-admins" class="nav-item" onclick="switchAdminTab('admins')">Admin / Staff</div>
             <div id="nav-accounts" class="nav-item" onclick="switchAdminTab('accounts')">Master Accounts</div>
             <div id="nav-import" class="nav-item" onclick="switchAdminTab('import')">Data Importer Tool</div>
@@ -155,168 +162,246 @@
         </nav>
     </div>
 
-    <div class="main-content">
-        <div class="page-container">
+    <div id="view-dashboard" class="page" style="display:block; flex: 1; padding: 30px; overflow-y: auto; background-color: #f3f4f6;">
 
-            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 20px; margin-bottom: 30px;">
-                <div class="stat-card">
-                    <div class="stat-label">Total Franchise Owners</div>
-                    <div class="stat-value" id="statOwners">0</div>
+        <div style="max-width: 1200px; margin: 0 auto;">
+
+            <div class="header-row" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 25px;">
+                <div>
+                    <h2 style="margin: 0; color: #111827; font-size: 1.8rem;">Global Operations Map</h2>
+                    <p style="color: #6b7280; margin: 5px 0 0 0;">Live view of all franchise territories and active staff.</p>
                 </div>
-                <div class="stat-card">
-                    <div class="stat-label">Total Accounts Managed</div>
-                    <div class="stat-value" id="statAccounts">0</div>
+                <button class="btn btn-secondary" onclick="loadAdminDashboard()" style="background: white; border: 1px solid #d1d5db; padding: 10px 20px; border-radius: 6px; cursor: pointer; font-weight: 600; color: #374151;">
+                    🔄 Refresh Map
+                </button>
+
+                <button class="btn btn-primary" onclick="repairEmployeeLocations()" style="margin-left: 10px; background: #2563eb; border: none; padding: 10px 20px; border-radius: 6px; cursor: pointer; font-weight: 600; color: white;">
+                    📍 Fix Missing Pins
+                </button>
+            </div>
+
+            <div class="stats-grid" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 20px; margin-bottom: 25px;">
+                <div class="stat-card" style="background: white; padding: 20px; border-radius: 12px; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1); border-left: 5px solid #3b82f6;">
+                    <h3 style="margin: 0; color: #6b7280; font-size: 0.9rem; text-transform: uppercase; letter-spacing: 0.5px;">Active Accounts</h3>
+                    <p id="mapStatAccounts" style="font-size: 2rem; font-weight: 800; color: #111; margin: 10px 0 0 0;">0</p>
                 </div>
-                <div class="stat-card">
-                    <div class="stat-label">System-Wide Revenue</div>
-                    <div class="stat-value" id="statRevenue">$0</div>
+                <div class="stat-card" style="background: white; padding: 20px; border-radius: 12px; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1); border-left: 5px solid #ef4444;">
+                    <h3 style="margin: 0; color: #6b7280; font-size: 0.9rem; text-transform: uppercase; letter-spacing: 0.5px;">Franchise Owners</h3>
+                    <p id="mapStatOwners" style="font-size: 2rem; font-weight: 800; color: #111; margin: 10px 0 0 0;">0</p>
                 </div>
-                <div class="stat-card" style="border-top-color: #ef4444;">
-                    <div class="stat-label">Employees Active</div>
-                    <div class="stat-value" id="statEmployees">0</div>
+                <div class="stat-card" style="background: white; padding: 20px; border-radius: 12px; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1); border-left: 5px solid #10b981;">
+                    <h3 style="margin: 0; color: #6b7280; font-size: 0.9rem; text-transform: uppercase; letter-spacing: 0.5px;">Active Employees</h3>
+                    <p id="mapStatEmployees" style="font-size: 2rem; font-weight: 800; color: #111; margin: 10px 0 0 0;">0</p>
                 </div>
             </div>
 
-            <div id="view-users" class="admin-view">
-                <div class="content-card">
-                    <div class="card-header">
-                        <h2>Franchise Owner Database</h2>
-                        <input type="text" id="userSearch" placeholder="Search users..." style="padding: 8px; border-radius: 4px; border: 1px solid #ccc;" onkeyup="filterUsers()">
-                    </div>
-                    <div id="userList" style="border: 1px solid #e5e7eb; border-radius: 8px; overflow: hidden;">
-                        <div style="padding: 20px; text-align: center; color: #666;">Loading users...</div>
-                    </div>
+            <div class="map-controls" style="display: flex; gap: 20px; margin-bottom: 15px; background: white; padding: 15px; border-radius: 8px; border: 1px solid #e5e7eb; flex-wrap: wrap; align-items: center;">
+                <div style="font-weight: bold; color: #374151; display: flex; align-items: center; margin-right: 10px;">
+                    View Layers:
                 </div>
 
-                <div class="content-card" style="margin-top: 30px;">
-                    <div class="card-header" style="border-bottom:none; margin-bottom: 0;">
-                        <h2>Franchise Owner Import</h2>
-                    </div>
+                <label style="display: flex; align-items: center; cursor: pointer; gap: 8px;">
+                    <input type="checkbox" id="toggleLayerAccounts" checked onchange="updateMapLayers()">
+                    <span style="display: inline-block; width: 12px; height: 12px; background-color: #2478cf; border-radius: 50%;"></span>
+                    <span style="font-size: 0.95rem; color: #4b5563;">Active Accounts</span>
+                </label>
 
-                    <div style="padding: 20px; border: 2px dashed #fca5a5; background: #fffbeb; border-radius: 8px;">
-                        <label style="font-weight:bold; color:#374151; display:block; margin-bottom: 10px;">Select Franchise Owners CSV File:</label>
-                        <input type="file" id="ownersCsvUpload" accept=".csv" />
+                <label style="display: flex; align-items: center; cursor: pointer; gap: 8px;">
+                    <input type="checkbox" id="toggleLayerOwners" checked onchange="updateMapLayers()">
+                    <span style="display: inline-block; width: 12px; height: 12px; background-color: #cb2b3e; border-radius: 50%;"></span>
+                    <span style="font-size: 0.95rem; color: #4b5563;">Franchise Owners</span>
+                </label>
 
-                        <button class="btn btn-primary"
-                                id="btnImportOwners"
-                                onclick="importOwnersFromCSV()"
-                                style="width: 100%; margin-top: 20px;">
-                            🚀 Start Bulk Import and Account Creation
-                        </button>
+                <label style="display: flex; align-items: center; cursor: pointer; gap: 8px;">
+                    <input type="checkbox" id="toggleLayerEmployees" checked onchange="updateMapLayers()">
+                    <span style="display: inline-block; width: 12px; height: 12px; background-color: #2aad27; border-radius: 50%;"></span>
+                    <span style="font-size: 0.95rem; color: #4b5563;">Active Employees</span>
+                </label>
 
-                        <div id="importOwnerStatus" style="margin-top:15px; text-align:center; font-weight:bold; color: #4b5563; min-height: 20px;"></div>
-                    </div>
-
-                    <div style="margin-top: 20px;">
-                        <h3 style="font-size: 1rem; color: #666; margin-bottom: 5px;">CSV Column Data Needed:</h3>
-                        <code style="background:#f3f4f6; padding: 5px 10px; border-radius:4px; font-size: 0.9rem; display: block;">
-                            CompanyName, Address, City, State, Zip, ContactName, ContactPhone, ContactEmail, CFee, PurchaseDate
-                        </code>
-                    </div>
+                <div style="margin-left: auto; border-left: 1px solid #e5e7eb; padding-left: 20px; display: flex; align-items: center; gap: 10px;">
+                    <span style="font-weight: bold; color: #374151;"> Filter by Owner:</span>
+                    <select id="mapOwnerFilter" onchange="updateMapLayers()" style="padding: 6px; border-radius: 4px; border: 1px solid #d1d5db; color: #111; cursor:pointer;">
+                        <option value="all">-- Show All Owners --</option>
+                    </select>
                 </div>
             </div>
 
-            <div id="view-admins" class="admin-view" style="display:none;">
-                <div class="content-card">
-                    <div class="card-header">
-                        <h2>System Admins</h2>
-                        <button class="btn btn-primary" style="background-color:#4f46e5;" onclick="document.getElementById('addAdminModal').style.display='flex'">
-                            + Add New Admin
-                        </button>
-                    </div>
+            <div id="adminMap" style="height: 600px; width: 100%; border-radius: 16px; border: 1px solid #d1d5db; z-index: 1; box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);"></div>
 
-                    <table class="admin-table">
-                        <thead>
-                        <tr>
-                            <th>Name</th>
-                            <th>Email</th>
-                            <th style="text-align:center;">Actions</th>
-                        </tr>
-                        </thead>
-                        <tbody id="adminListBody">
-                        <tr><td colspan="3" style="text-align:center; padding:20px;">Loading...</td></tr>
-                        </tbody>
-                    </table>
+        </div>
+    </div>
+    <div id="view-users" class="page" style="display:none; flex: 1; padding: 30px; overflow-y: auto;">
+
+        <div style="max-width: 1200px; margin: 0 auto;">
+
+            <div class="header-row" style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 25px;">
+                <div>
+                    <h2 style="margin:0;">Franchise Owner Database</h2>
+                    <p style="color:#6b7280; margin:5px 0 0 0;">Manage users, access, and permissions.</p>
+                </div>
+                <div>
+                    <button class="btn btn-primary" onclick="showAddOwnerModal()">+ Add New Owner</button>
+                    <button class="btn btn-secondary" onclick="showAddAdminModal()" style="margin-left:10px;">+ Add Admin</button>
                 </div>
             </div>
 
-            <div id="view-accounts" class="admin-view" style="display:none;">
-                <div class="content-card">
-                    <div class="card-header" style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;">
-                        <h2>Master Client Database</h2>
-
-                        <div style="display:flex; align-items:center; gap:15px;">
-                            <div style="display:flex; align-items:center; background:#f9fafb; padding:5px 10px; border-radius:8px; border:1px solid #e5e7eb;">
-                                <label class="switch">
-                                    <input type="checkbox" id="toggleInactive" onchange="filterMasterAccounts()">
-                                    <span class="slider"></span>
-                                </label>
-                                <span style="margin-left:8px; font-size:0.85rem; font-weight:600; color:#4b5563;">Show Inactive</span>
-                            </div>
-
-                            <input type="text" id="masterSearch" onkeyup="filterMasterAccounts()" placeholder="Search PID, Name, Address..."
-                                   style="padding:8px; border:1px solid #ddd; border-radius:6px; width:250px;">
-
-                            <button class="btn btn-secondary" onclick="loadMasterAccounts()">🔄 Refresh</button>
-                        </div>
-                    </div>
-
-                    <table class="admin-table">
-                        <thead>
-                        <tr>
-                            <th>PID</th>
-                            <th>Name</th>
-                            <th>Address</th>
-                            <th>Fran ID</th>
-                            <th style="text-align:right;">Revenue</th>
-                            <th style="text-align:center;">Status</th>
-                            <th style="text-align:center;">Actions</th>
-                        </tr>
-                        </thead>
-                        <tbody id="masterAccountList"></tbody>
-                    </table>
+            <div class="stats-grid" style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 20px; margin-bottom: 30px;">
+                <div class="stat-card" style="border-left: 5px solid #0d9488;">
+                    <h3>Total Owners</h3>
+                    <p id="statOwners">0</p>
+                </div>
+                <div class="stat-card" style="border-left: 5px solid #3b82f6;">
+                    <h3>Total Accounts</h3>
+                    <p id="statAccounts">0</p>
+                </div>
+                <div class="stat-card" style="border-left: 5px solid #10b981;">
+                    <h3>System Revenue</h3>
+                    <p id="statRevenue">$0</p>
+                </div>
+                <div class="stat-card" style="border-left: 5px solid #f59e0b;">
+                    <h3>Total Employees</h3>
+                    <p id="statEmployees">0</p>
                 </div>
             </div>
 
-            <div id="view-import" class="admin-view" style="display:none;">
-                <div class="content-card">
-                    <div class="card-header">
-                        <h2>Admin Data Importer</h2>
-                    </div>
+            <div class="search-bar" style="margin-bottom: 20px;">
+                <input type="text" id="userSearch" placeholder="Search by name, email, or Franchise ID..." onkeyup="filterUsers()" style="width: 100%; padding: 12px; border-radius: 8px; border: 1px solid #d1d5db;">
+            </div>
 
-                    <div style="padding: 10px;">
-                        <label style="font-weight:bold; color:#374151;">Select Import Type:</label>
-                        <select id="importType" class="import-select">
-                            <option value="master">1. Active Master List (Upsert & Update)</option>
-                            <option value="cancelled">2. Cancelled Client List (Set Inactive)</option>
-                            <option value="history">3. Legacy Account History (Initial Setup)</option>
-                        </select>
+            <div id="userList" class="user-list">
+                <div style="text-align:center; padding:40px; color:#9ca3af;">Loading database...</div>
+            </div>
 
-                        <div class="checkbox-wrapper">
-                            <input type="checkbox" id="geoEnabled" checked>
-                            <label for="geoEnabled">Auto-Fix Map Coordinates (Adds ~0.6s per row)</label>
-                        </div>
+            <div class="content-card" style="margin-top: 30px; background:white; padding:20px; border-radius:8px; border:1px solid #e5e7eb;">
+                <div class="card-header" style="border-bottom:none; margin-bottom: 10px;">
+                    <h2 style="font-size:1.2rem;">Franchise Owner Import</h2>
+                </div>
 
-                        <div class="upload-box">
-                            <input type="file" id="uploadCsv" accept=".csv" />
-                        </div>
+                <div style="padding: 20px; border: 2px dashed #fca5a5; background: #fffbeb; border-radius: 8px;">
+                    <label style="font-weight:bold; color:#374151; display:block; margin-bottom: 10px;">Select Franchise Owners CSV File:</label>
+                    <input type="file" id="ownersCsvUpload" accept=".csv" />
 
-                        <button id="btnUpload" class="btn btn-primary" style="width:100%;" onclick="processFile()">🚀 Start Import</button>
-                        <button onclick="runSmartSync()" class="btn-sync">🧠 Run Smart Sync (Fix Missing Owner Addresses)</button>
+                    <button class="btn btn-primary"
+                            id="btnImportOwners"
+                            onclick="importOwnersFromCSV()"
+                            style="width: 100%; margin-top: 20px;">
+                        🚀 Start Bulk Import and Account Creation
+                    </button>
 
-                        <div id="status" style="margin-top:15px; text-align:center; font-weight:bold; color: #4b5563; min-height: 20px;"></div>
-                        <div id="log" class="log-window"></div>
-
-                        <div style="margin-top: 20px; display: flex; gap: 10px;">
-                            <button class="btn" onclick="checkRecordCount()" style="background:#e0f2fe; color:#0369a1; border:1px solid #bae6fd;">📊 Check Master Count</button>
-                            <button class="btn btn-danger" onclick="wipeMasterList()">🗑️ Wipe Master Data</button>
-                        </div>
-                    </div>
+                    <div id="importOwnerStatus" style="margin-top:15px; text-align:center; font-weight:bold; color: #4b5563; min-height: 20px;"></div>
                 </div>
             </div>
 
         </div>
     </div>
+
+    <div id="view-admins" class="page" style="display:none; flex: 1; padding: 30px; overflow-y: auto;">
+        <div style="max-width: 1200px; margin: 0 auto;">
+            <div class="content-card">
+                <div class="card-header">
+                    <h2>System Admins</h2>
+                    <button class="btn btn-primary" style="background-color:#4f46e5;" onclick="document.getElementById('addAdminModal').style.display='flex'">
+                        + Add New Admin
+                    </button>
+                </div>
+
+                <table class="admin-table">
+                    <thead>
+                    <tr>
+                        <th>Name</th>
+                        <th>Email</th>
+                        <th style="text-align:center;">Actions</th>
+                    </tr>
+                    </thead>
+                    <tbody id="adminListBody">
+                    <tr><td colspan="3" style="text-align:center; padding:20px;">Loading...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <div id="view-accounts" class="page" style="display:none; flex: 1; padding: 30px; overflow-y: auto;">
+        <div style="max-width: 1200px; margin: 0 auto;">
+            <div class="content-card">
+                <div class="card-header" style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;">
+                    <h2>Master Client Database</h2>
+
+                    <div style="display:flex; align-items:center; gap:15px;">
+                        <div style="display:flex; align-items:center; background:#f9fafb; padding:5px 10px; border-radius:8px; border:1px solid #e5e7eb;">
+                            <label class="switch">
+                                <input type="checkbox" id="toggleInactive" onchange="filterMasterAccounts()">
+                                <span class="slider"></span>
+                            </label>
+                            <span style="margin-left:8px; font-size:0.85rem; font-weight:600; color:#4b5563;">Show Inactive</span>
+                        </div>
+
+                        <input type="text" id="masterSearch" onkeyup="filterMasterAccounts()" placeholder="Search PID, Name, Address..."
+                               style="padding:8px; border:1px solid #ddd; border-radius:6px; width:250px;">
+
+                        <button class="btn btn-secondary" onclick="loadMasterAccounts()">🔄 Refresh</button>
+                    </div>
+                </div>
+
+                <table class="admin-table">
+                    <thead>
+                    <tr>
+                        <th>PID</th>
+                        <th>Name</th>
+                        <th>Address</th>
+                        <th>Fran ID</th>
+                        <th style="text-align:right;">Revenue</th>
+                        <th style="text-align:center;">Status</th>
+                        <th style="text-align:center;">Actions</th>
+                    </tr>
+                    </thead>
+                    <tbody id="masterAccountList"></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <div id="view-import" class="page" style="display:none; flex: 1; padding: 30px; overflow-y: auto;">
+        <div style="max-width: 800px; margin: 0 auto;">
+            <div class="content-card">
+                <div class="card-header">
+                    <h2>Admin Data Importer</h2>
+                </div>
+
+                <div style="padding: 10px;">
+                    <label style="font-weight:bold; color:#374151;">Select Import Type:</label>
+                    <select id="importType" class="import-select">
+                        <option value="master">1. Active Master List (Upsert & Update)</option>
+                        <option value="cancelled">2. Cancelled Client List (Set Inactive)</option>
+                        <option value="history">3. Legacy Account History (Initial Setup)</option>
+                    </select>
+
+                    <div class="checkbox-wrapper">
+                        <input type="checkbox" id="geoEnabled" checked>
+                        <label for="geoEnabled">Auto-Fix Map Coordinates (Adds ~0.6s per row)</label>
+                    </div>
+
+                    <div class="upload-box">
+                        <input type="file" id="uploadCsv" accept=".csv" />
+                    </div>
+
+                    <button id="btnUpload" class="btn btn-primary" style="width:100%;" onclick="processFile()">🚀 Start Import</button>
+                    <button onclick="runSmartSync()" class="btn-sync">🧠 Run Smart Sync (Fix Missing Owner Addresses)</button>
+
+                    <div id="status" style="margin-top:15px; text-align:center; font-weight:bold; color: #4b5563; min-height: 20px;"></div>
+                    <div id="log" class="log-window"></div>
+
+                    <div style="margin-top: 20px; display: flex; gap: 10px;">
+                        <button class="btn" onclick="checkRecordCount()" style="background:#e0f2fe; color:#0369a1; border:1px solid #bae6fd;">Check Master Count</button>
+                        <button class="btn btn-danger" onclick="wipeMasterList()">🗑️ Wipe Master Data</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+</div>
+</div>
 </div>
 
 <div id="editMasterAccountModal" class="modal">
