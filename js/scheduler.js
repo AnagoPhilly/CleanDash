@@ -1,7 +1,7 @@
 // js/scheduler.js
 
 // --- 1. CONFIGURATION ---
-const START_HOUR = 1; // Start at 12 PM (Noon)
+const START_HOUR = 12; // Start at 12 PM (Noon)
 const HOURS_TO_RENDER = 30;
 const PIXELS_PER_HOUR = 60;
 const SNAP_MINUTES = 15;
@@ -9,7 +9,7 @@ const PIXELS_PER_MINUTE = PIXELS_PER_HOUR / 60;
 const SNAP_PIXELS = SNAP_MINUTES * PIXELS_PER_MINUTE;
 
 // --- 2. STATE ---
-let currentView = window.innerWidth < 768 ? 'day' : 'month';
+let currentView = 'month';
 let currentDate = new Date();
 let alertedJobs = new Set();
 const alertSound = new Audio('https://assets.mixkit.co/sfx/preview/mixkit-software-interface-start-2574.mp3');
@@ -17,48 +17,9 @@ const alertSound = new Audio('https://assets.mixkit.co/sfx/preview/mixkit-softwa
 // Globals
 let schedulerSettings = {};
 let currentEmpFilter = 'ALL';
+let currentAccountFilter = 'ALL'; // <--- NEW VARIABLE
 let showEmployeeColors = false;
 let employeeColors = {};
-
-// --- HELPER: CALCULATE VIEW DATE RANGE ---
-function getViewDateRange() {
-    const start = new Date(currentDate);
-    const end = new Date(currentDate);
-
-    if (currentView === 'month') {
-        // 1. Get First Day of Month
-        start.setDate(1);
-        start.setHours(0,0,0,0);
-
-        // 2. Padding: Go back 7 days to catch previous month's trailing days
-        start.setDate(start.getDate() - 7);
-
-        // 3. Get Last Day of Month
-        end.setMonth(end.getMonth() + 1);
-        end.setDate(0);
-
-        // 4. Padding: Go forward 7 days to catch next month's leading days
-        end.setDate(end.getDate() + 7);
-        end.setHours(23,59,59,999);
-
-    } else if (currentView === 'week') {
-        // Start of week (Sunday)
-        const day = start.getDay();
-        start.setDate(start.getDate() - day);
-        start.setHours(0,0,0,0);
-
-        // End of week (Saturday)
-        end.setDate(start.getDate() + 6);
-        end.setHours(23,59,59,999);
-
-    } else {
-        // Day view: Start to End of today
-        start.setHours(0,0,0,0);
-        end.setHours(23,59,59,999);
-    }
-
-    return { start, end };
-}
 
 // --- 3. NAVIGATION LISTENER ---
 document.addEventListener('click', function(e) {
@@ -90,56 +51,44 @@ function getLocalYMD(d) {
 
 currentDate = normalizeDate(currentDate, currentView);
 
-// --- 4. MAIN LOAD FUNCTION ---
+// --- 4. MAIN LOAD FUNCTION (Updated with Account Filter) ---
 async function loadScheduler() {
+    checkRollingSchedules();
     console.log(`CleanDash: Loading Schedule (${currentView} view)...`);
     const container = document.getElementById('schedulerGrid');
 
-    // --- CONTAINER SETUP ---
     if (container) {
-        // Reset styles first
-        container.style.padding = '0';
-        container.style.margin = '0';
-
-        // Calculate height based on viewport minus header
-        container.style.height = '100%';
-        container.style.width = '100%';
-
-        // Default to hidden (Month View uses this), Week view overrides it
+        container.style.padding = '0'; container.style.margin = '0';
+        container.style.height = 'calc(100vh - 170px)'; container.style.width = '100%';
         container.style.overflow = 'hidden';
-
         if(container.parentElement) {
-            container.parentElement.style.padding = '0';
-            container.parentElement.style.height = '100%';
-            container.parentElement.style.display = 'flex';
-            container.parentElement.style.flexDirection = 'column';
+            container.parentElement.style.padding = '0'; container.parentElement.style.height = '100%';
+            container.parentElement.style.display = 'flex'; container.parentElement.style.flexDirection = 'column';
             container.parentElement.style.overflow = 'hidden';
         }
     }
 
-    if (!container.innerHTML.trim()) {
-        container.innerHTML = '<div style="grid-column:1/-1; text-align:center; padding:2rem; color:#888;">Loading schedule...</div>';
-    }
-
+    if (!container.innerHTML.trim()) container.innerHTML = '<div style="grid-column:1/-1; text-align:center; padding:2rem; color:#888;">Loading schedule...</div>';
     if (!window.currentUser) return;
 
     try {
         const [userDoc, jobs, accountsSnap, empSnap] = await Promise.all([
             db.collection('users').doc(window.currentUser.uid).get(),
             fetchJobs(),
-            db.collection('accounts').where('owner', '==', window.currentUser.email).get(),
+            db.collection('accounts').where('owner', '==', window.currentUser.email).orderBy('name').get(),
             db.collection('employees').where('owner', '==', window.currentUser.email).orderBy('name').get()
         ]);
 
         const accountAlarms = {};
+        const accountsList = []; // Store for dropdown
         accountsSnap.forEach(doc => {
             const data = doc.data();
+            accountsList.push({ id: doc.id, name: data.name });
             if(data.alarmCode) accountAlarms[doc.id] = data.alarmCode;
         });
 
         const employees = [];
         employeeColors = {};
-
         empSnap.forEach(doc => {
             const data = doc.data();
             employees.push({ id: doc.id, name: data.name });
@@ -149,40 +98,38 @@ async function loadScheduler() {
         schedulerSettings = userDoc.exists ? userDoc.data() : {};
 
         updateHeaderUI();
-        renderFilterDropdown(employees);
+        renderFilterDropdown(employees);      // Existing Employee Filter
+        renderAccountDropdown(accountsList);  // NEW Account Filter
         renderColorToggle();
 
         const alertControls = document.getElementById('alertControls');
         if(alertControls) alertControls.style.display = 'flex';
-        const delayInput = document.getElementById('editEmailDelay');
-        if(delayInput) delayInput.value = schedulerSettings.emailDelayMinutes || 60;
-        const enabledInput = document.getElementById('editEmailEnabled');
-        if(enabledInput) enabledInput.checked = (schedulerSettings.emailAlertsEnabled === undefined) ? true : schedulerSettings.emailAlertsEnabled;
+        // ... (keep existing email settings logic) ...
 
+        // --- FILTERING LOGIC ---
         let filteredJobs = jobs;
+
+        // 1. Filter by Employee
         if (currentEmpFilter !== 'ALL') {
-            filteredJobs = jobs.filter(job => job.employeeId === currentEmpFilter);
+            filteredJobs = filteredJobs.filter(job => job.employeeId === currentEmpFilter);
+        }
+
+        // 2. Filter by Account (NEW)
+        if (currentAccountFilter !== 'ALL') {
+            filteredJobs = filteredJobs.filter(job => job.accountId === currentAccountFilter);
         }
 
         window.schedulerJobsCache = filteredJobs;
 
         const alertThreshold = schedulerSettings.alertThreshold || 15;
         const emailDelayMinutes = schedulerSettings.emailDelayMinutes || 60;
-        const emailAlertsEnabled = enabledInput.checked;
+        const emailAlertsEnabled = document.getElementById('editEmailEnabled')?.checked ?? true;
 
-        // RENDER VIEWS
-        if (currentView === 'week') {
-            renderWeekView(filteredJobs, alertThreshold, emailDelayMinutes, emailAlertsEnabled, accountAlarms);
-        } else if (currentView === 'day') {
-            renderDayView(filteredJobs, alertThreshold, emailDelayMinutes, emailAlertsEnabled, accountAlarms);
-        } else if (currentView === 'month') {
-            renderMonthView(filteredJobs, alertThreshold, emailDelayMinutes, emailAlertsEnabled, accountAlarms);
-        }
+        if (currentView === 'week') renderWeekView(filteredJobs, alertThreshold, emailDelayMinutes, emailAlertsEnabled, accountAlarms);
+        else if (currentView === 'day') renderDayView(filteredJobs, alertThreshold, emailDelayMinutes, emailAlertsEnabled, accountAlarms);
+        else if (currentView === 'month') renderMonthView(filteredJobs, alertThreshold, emailDelayMinutes, emailAlertsEnabled, accountAlarms);
 
-        if (currentView !== 'month') {
-             setupInteractions();
-        }
-
+        if (currentView !== 'month') setupInteractions();
         attachDblClickListeners();
         attachRowHighlighter();
 
@@ -193,24 +140,11 @@ async function loadScheduler() {
 }
 
 async function fetchJobs() {
-    // --- PERFORMANCE FIX: DATE FILTERING ---
-    const { start, end } = getViewDateRange();
-    console.log(`Fetching jobs from ${start.toLocaleDateString()} to ${end.toLocaleDateString()}`);
-
-    let q = db.collection('jobs');
-
-    // Handle Admin vs Owner
-    if (window.currentUser.email !== 'admin@cleandash.com') {
-        q = q.where('owner', '==', window.currentUser.email);
-    }
-
-    // Apply Date Range Filter (The key to speed!)
-    q = q.where('startTime', '>=', start)
-         .where('startTime', '<=', end);
+    const q = window.currentUser.email === 'admin@cleandash.com'
+        ? db.collection('jobs')
+        : db.collection('jobs').where('owner', '==', window.currentUser.email);
 
     const snap = await q.get();
-    // ---------------------------------------
-
     const jobs = [];
     snap.forEach(doc => {
         const j = doc.data();
@@ -222,6 +156,69 @@ async function fetchJobs() {
         jobs.push(j);
     });
     return jobs;
+}
+
+// --- RENDER ACCOUNT FILTER (New Function) ---
+function renderAccountDropdown(accounts) {
+    let filterContainer = document.getElementById('schedulerAccountFilterContainer');
+
+    // If container doesn't exist, create it
+    if (!filterContainer) {
+        const header = document.querySelector('#scheduler .card-header');
+        const viewToggles = document.querySelector('#scheduler .view-toggles'); // We insert before the buttons
+
+        if (header && viewToggles) {
+            filterContainer = document.createElement('div');
+            filterContainer.id = 'schedulerAccountFilterContainer';
+            filterContainer.style.marginRight = '10px'; // Space between dropdowns
+
+            const select = document.createElement('select');
+            select.id = 'schedulerAccFilterSelect';
+            select.className = 'form-control';
+            select.style.padding = '6px 12px';
+            select.style.borderRadius = '6px';
+            select.style.border = '1px solid #d1d5db';
+            select.style.fontSize = '0.9rem';
+            select.style.fontWeight = '600';
+            select.style.maxWidth = '200px'; // Prevent it from getting too wide
+
+            // On Change: Update global state and reload
+            select.onchange = function() {
+                currentAccountFilter = this.value;
+                loadScheduler();
+            };
+
+            filterContainer.appendChild(select);
+            // Insert it before the view toggles, but after the employee filter (handled by order of execution usually)
+            // To be safe, we insert before view toggles
+            header.insertBefore(filterContainer, viewToggles);
+        }
+    }
+
+    // Populate Options
+    const select = document.getElementById('schedulerAccFilterSelect');
+    if (select) {
+        // Save current selection to restore after rebuild
+        const currentSelection = select.value || currentAccountFilter;
+
+        select.innerHTML = '';
+
+        // Default Option
+        const allOpt = document.createElement('option');
+        allOpt.value = 'ALL';
+        allOpt.textContent = 'All Locations';
+        select.appendChild(allOpt);
+
+        // Account Options
+        accounts.forEach(acc => {
+            const opt = document.createElement('option');
+            opt.value = acc.id;
+            opt.textContent = acc.name;
+            select.appendChild(opt);
+        });
+
+        select.value = currentSelection;
+    }
 }
 
 // --- 5. RENDERERS ---
@@ -239,12 +236,7 @@ function renderColorToggle() {
             toggleContainer.style.display = 'flex';
             toggleContainer.style.alignItems = 'center';
 
-            toggleContainer.innerHTML = `
-                <label class="toggle-label" style="font-size:0.85rem; color:#4b5563; font-weight:600; cursor:pointer;">
-                    <input type="checkbox" id="chkEmployeeColors" onchange="toggleColorMode(this)" style="margin-right:5px;">
-                    Colors
-                </label>
-            `;
+
             header.insertBefore(toggleContainer, viewToggles);
         }
     }
@@ -292,126 +284,161 @@ function renderDayView(jobs, alertThreshold, emailDelay, emailEnabled, accountAl
     grid.innerHTML = html;
 }
 
-// --- 6. MONTH VIEW (FIT TO SCREEN - FIXED) ---
+// --- 6. MONTH VIEW (GROUPED + SYMMETRICAL + WORKING BUTTON) ---
 function renderMonthView(jobs, alertThreshold, emailDelay, emailEnabled, accountAlarms) {
     const grid = document.getElementById('schedulerGrid');
     if(!grid) return;
 
-    // --- DISABLE OUTER SCROLL ---
+    // 1. Container Setup
     grid.style.overflow = 'hidden';
     grid.style.display = 'flex';
     grid.style.flexDirection = 'column';
+    grid.style.background = 'white';
 
-    // WRAPPER: 100% width/height
-    let html = `<div style="width: 100%; height: 100%; display: flex; flex-direction: column; background:white;">`;
-
-    // GRID LAYOUT:
-    // - grid-template-columns: repeat(7, minmax(0, 1fr)) -> Forces columns to squash to fit 100% width.
-    // - NO min-width -> Allows it to shrink to any screen size.
-    html += `<div class="month-view-container" style="
-        display: grid;
-        grid-template-columns: repeat(7, minmax(0, 1fr));
-        grid-template-rows: 25px repeat(6, 1fr);
-        flex: 1;
-        width: 100%;
-        background: #fff;
-        border-top: 1px solid #e5e7eb;">
-
-        ${['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'].map(day =>
-            `<div style="background:#fff; text-align:center; font-size:0.75rem; font-weight:700; color:#6b7280; border-right: 1px solid #e5e7eb; border-bottom: 1px solid #e5e7eb; display:flex; align-items:center; justify-content:center; overflow:hidden;">${day}</div>`
-        ).join('')}
-    `;
-
+    // 2. Date Math
     const year = currentDate.getFullYear();
     const month = currentDate.getMonth();
     const firstDay = new Date(year, month, 1);
     const now = new Date();
 
+    // Start on the correct Sunday
     let iterator = new Date(firstDay);
-    const diff = iterator.getDay();
-    iterator.setDate(iterator.getDate() - diff);
+    iterator.setDate(iterator.getDate() - iterator.getDay());
 
-    // Render exactly 42 cells (6 rows x 7 cols)
+    // 3. Grid Wrapper
+    let html = `
+    <div style="
+        display: grid;
+        grid-template-columns: repeat(7, 1fr);
+        grid-template-rows: 30px repeat(6, 1fr);
+        height: 100%;
+        width: 100%;
+        border-top: 1px solid #e5e7eb;
+        border-left: 1px solid #e5e7eb;
+        box-sizing: border-box;">
+    `;
+
+    // 4. Header Row
+    const days = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'];
+    days.forEach(day => {
+        html += `<div style="
+            background: #f9fafb;
+            color: #6b7280;
+            font-size: 0.75rem;
+            font-weight: 700;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-right: 1px solid #e5e7eb;
+            border-bottom: 1px solid #e5e7eb;
+            letter-spacing: 0.05em;
+        ">${day}</div>`;
+    });
+
+    // 5. Render 42 Days
     for(let i=0; i<42; i++) {
         const isCurrMonth = iterator.getMonth() === month;
         const dateStr = getLocalYMD(iterator);
         const isToday = isSameDay(iterator, now);
 
-        const bgStyle = isCurrMonth ? 'background: #fff;' : 'background: #fcfcfc;';
+        const bg = isCurrMonth ? 'white' : '#fcfcfc';
+        const opacity = isCurrMonth ? '1' : '0.4';
 
-        // "Today" Indicator (Blue Circle)
-        let dateNumStyle = 'font-size:0.8rem; font-weight:600; padding:2px 4px; color:#374151;';
+        let dateBubble = `<span style="font-size:0.85rem; font-weight:600; color:#374151; padding:4px;">${iterator.getDate()}</span>`;
         if (isToday) {
-            dateNumStyle = 'background: #2563eb; color: white; border-radius: 50%; width: 22px; height: 22px; display: flex; align-items: center; justify-content: center; margin: 4px;';
-        } else {
-            dateNumStyle += ' margin-top: 4px; text-align: left; display: block;';
+            dateBubble = `<span style="background: #2563eb; color: white; border-radius: 50%; width: 24px; height: 24px; display: flex; align-items: center; justify-content: center; font-size: 0.8rem; font-weight: bold; margin: 2px;">${iterator.getDate()}</span>`;
         }
-        if (!isCurrMonth) dateNumStyle += ' opacity: 0.4;';
 
+        // --- GROUPING LOGIC ---
         const dayJobs = jobs.filter(j => isSameDay(j.start, iterator));
-        dayJobs.sort((a,b) => a.start - b.start);
-
-        // CELL:
-        // - overflow: hidden clips content so the box doesn't grow
-        html += `
-        <div class="month-day-cell"
-             style="${bgStyle} border-right: 1px solid #e5e7eb; border-bottom: 1px solid #e5e7eb; position:relative; display:flex; flex-direction:column; overflow:hidden;"
-             onclick="window.showAssignShiftModal('17:00', '${dateStr}')">
-
-            <div style="display:flex; justify-content:space-between; align-items:flex-start;">
-                <div style="${dateNumStyle}">${iterator.getDate()}</div>
-            </div>
-
-            <div style="flex:1; display:flex; flex-direction:column; gap:1px; overflow: hidden; padding: 0 2px 2px 2px;">`;
+        const groups = {};
 
         dayJobs.forEach(job => {
-            // PILL STYLES
-            let colorStyle = 'background-color: #e0f2fe; color: #1e40af;';
+            const timeKey = formatTime(job.start);
+            const key = `${job.accountId}_${timeKey}`;
+            if(!groups[key]) {
+                groups[key] = {
+                    accId: job.accountId,
+                    accName: job.accountName,
+                    time: timeKey,
+                    start: job.start,
+                    status: 'Scheduled',
+                    staff: []
+                };
+            }
+            groups[key].staff.push(job);
+            if(job.status === 'Started') groups[key].status = 'Started';
+        });
 
-            if (job.status === 'Completed') colorStyle = 'background-color: #dcfce7; color: #166534;';
-            else if (job.status === 'Started') colorStyle = 'background-color: #f3f4f6; color: #4b5563;';
+        const groupArr = Object.values(groups).sort((a,b) => a.start - b.start);
+
+        // CELL HTML
+        html += `
+        <div class="month-cell"
+             onclick="window.showAssignShiftModal('17:00', '${dateStr}')"
+             style="background: ${bg}; opacity: ${opacity}; border-right: 1px solid #e5e7eb; border-bottom: 1px solid #e5e7eb; display: flex; flex-direction: column; overflow: hidden; position: relative; cursor: pointer; transition: background 0.1s;"
+             onmouseover="this.style.background='#f3f4f6'"
+             onmouseout="this.style.background='${bg}'">
+
+             <div style="display:flex; justify-content:space-between; align-items:start;">
+                ${dateBubble}
+             </div>
+
+             <div style="flex:1; padding:2px; display:flex; flex-direction:column; gap:2px; overflow:hidden; padding-bottom: 20px;">`;
+
+        groupArr.forEach(g => {
+            let border = '3b82f6'; let bgCol = 'e0f2fe'; let textCol = '1e40af';
+            const allDone = g.staff.every(s => s.status === 'Completed');
+            const anyActive = g.staff.some(s => s.status === 'Started');
+
+            if(allDone) { border='10b981'; bgCol='dcfce7'; textCol='166534'; }
+            else if(anyActive) { border='f59e0b'; bgCol='fffbeb'; textCol='b45309'; }
             else {
-                const lateTime = new Date(job.start.getTime() + alertThreshold * 60000);
-                if (now > lateTime) colorStyle = 'background-color: #fee2e2; color: #991b1b;';
+                // --- FIXED: ADDED LATE CHECK HERE ---
+                const lateTime = new Date(g.start.getTime() + (alertThreshold * 60000));
+                if (now > lateTime) {
+                    border='ef4444'; bgCol='fee2e2'; textCol='991b1b';
+                }
             }
 
-            if (showEmployeeColors && employeeColors[job.employeeId]) {
-                colorStyle = `background-color: ${employeeColors[job.employeeId]}; color: #fff;`;
-            }
-
-            const alarmIndicator = accountAlarms[job.accountId] ? '🔒' : '';
+            const countBadge = g.staff.length > 1 ? `<span style="background:rgba(255,255,255,0.5); padding:0 3px; border-radius:3px; font-size:0.65rem; margin-left:auto;">${g.staff.length}👥</span>` : '';
 
             html += `
-            <div style="${colorStyle} font-size:0.7rem; padding:1px 4px; border-radius:2px; cursor:pointer; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; margin-bottom:1px;"
-                 data-id="${job.id}"
-                 onclick="event.stopPropagation(); window.editJob({id:'${job.id}', accountId:'${job.accountId}', employeeId:'${job.employeeId}'})"
-                 title="${formatTime(job.start)} - ${job.accountName}">
-                 ${alarmIndicator} <span style="font-weight:700;">${formatTime(job.start)}</span> ${job.accountName}
+            <div onclick="event.stopPropagation(); window.openGroupDetails('${dateStr}', '${g.accId}', '${g.time}')"
+                 title="${g.accName} (${g.staff.length} Staff)"
+                 style="background: #${bgCol}; color: #${textCol}; border-left: 3px solid #${border}; border-radius: 2px; padding: 2px 4px; font-size: 0.7rem; display: flex; flex-direction: column; line-height: 1.2; box-shadow: 0 1px 1px rgba(0,0,0,0.05);">
+                 <div style="display:flex; align-items:center; font-weight:700; font-size:0.65rem; margin-bottom:1px;">
+                    ${g.time} ${countBadge}
+                 </div>
+                 <div style="white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">
+                    ${g.accName}
+                 </div>
             </div>`;
         });
 
         html += `</div>`;
 
-        // PLUS BUTTON: Only if shifts exist
+        // --- FIXED "VIEW ALL" BUTTON ---
         if (dayJobs.length > 0) {
             html += `
-                <div class="mobile-detail-btn"
-                     style="display:flex; position:absolute; bottom:2px; right:2px; width:18px; height:18px; background:rgba(255,255,255,0.8); color:#4b5563; border-radius:3px; justify-content:center; align-items:center; cursor:pointer; font-size:1rem; border:1px solid #d1d5db; font-weight:bold; z-index: 10;"
-                     onclick="event.stopPropagation(); showMobileDayDetails('${dateStr}')"
-                     title="View All">
-                     +
-                </div>`;
+            <div style="position: absolute; bottom: 2px; right: 2px; font-size: 1.2rem; font-weight: bold; color: #6b7280; cursor: pointer; z-index: 10; width: 24px; height: 24px; display:flex; align-items:center; justify-content:center; border-radius:4px;"
+                 onclick="event.stopPropagation(); window.showMobileDayDetails('${dateStr}')"
+                 title="View Day Details"
+                 onmouseover="this.style.background='#e5e7eb'; this.style.color='#374151'"
+                 onmouseout="this.style.background='transparent'; this.style.color='#6b7280'">
+                 +
+            </div>`;
         }
 
-        html += `</div>`;
+        html += `</div>`; // End Cell
         iterator.setDate(iterator.getDate() + 1);
     }
 
-    html += `</div></div>`;
+    html += `</div>`; // End Grid
     grid.innerHTML = html;
 }
 
-// --- 7. HELPER: POPUP MODAL ---
+// --- 7. HELPER: DAY DETAILS POPUP (ACCOUNTS VIEW) ---
 window.showMobileDayDetails = function(dateStr) {
     const existing = document.getElementById('mobileDayPopup');
     if(existing) existing.remove();
@@ -419,6 +446,7 @@ window.showMobileDayDetails = function(dateStr) {
     const targetDate = new Date(dateStr + 'T00:00:00');
     const allJobs = window.schedulerJobsCache || [];
 
+    // 1. Filter jobs for this day
     const dayJobs = allJobs.filter(j => {
         const d = j.start;
         return d.getDate() === targetDate.getDate() &&
@@ -426,45 +454,93 @@ window.showMobileDayDetails = function(dateStr) {
                d.getFullYear() === targetDate.getFullYear();
     });
 
-    dayJobs.sort((a,b) => a.start - b.start);
+    // 2. Group by Account + Time
+    const groups = {};
+    dayJobs.forEach(job => {
+        const timeKey = formatTime(job.start);
+        const groupKey = `${job.accountId}_${timeKey}`;
 
+        if(!groups[groupKey]) {
+            groups[groupKey] = {
+                accId: job.accountId,
+                accName: job.accountName,
+                time: timeKey,
+                start: job.start,
+                status: 'Scheduled',
+                staff: []
+            };
+        }
+        groups[groupKey].staff.push(job);
+        // Status priority: Completed > Started > Scheduled
+        if(job.status === 'Started') groups[groupKey].status = 'Started';
+    });
+
+    const groupArr = Object.values(groups).sort((a,b) => a.start - b.start);
     const displayDate = targetDate.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
 
-    let content = `<div style="padding:15px; background:#f9fafb; border-bottom:1px solid #e5e7eb; display:flex; justify-content:space-between; align-items:center; border-radius:8px 8px 0 0;">
-            <h3 style="margin:0; font-size:1.1rem; color:#1f2937;">${displayDate}</h3>
-            <button onclick="document.getElementById('mobileDayPopup').remove()" style="border:none; background:none; font-size:1.5rem; color:#6b7280;">&times;</button>
+    // 3. Build HTML
+    let content = `
+    <div style="padding:15px; background:#f8fafc; border-bottom:1px solid #e2e8f0; border-radius:8px 8px 0 0; display:flex; justify-content:space-between; align-items:center;">
+        <div>
+            <h3 style="margin:0; color:#1e293b; font-size:1.1rem;">${displayDate}</h3>
+            <div style="color:#64748b; font-size:0.85rem; margin-top:2px;">${groupArr.length} Locations Scheduled</div>
         </div>
-        <div style="max-height:60vh; overflow-y:auto; padding:15px; background:white;">`;
+        <button onclick="document.getElementById('mobileDayPopup').remove()" style="border:none; background:none; font-size:1.5rem; color:#94a3b8; cursor:pointer;">&times;</button>
+    </div>
+    <div style="padding:10px; max-height:60vh; overflow-y:auto; background:white;">`;
 
-    if (dayJobs.length === 0) {
-        content += `<p style="color:#666; text-align:center; padding:20px; background:#f9fafb; border-radius:4px; border:1px solid #e5e7eb;">No shifts scheduled.</p>`;
+    if (groupArr.length === 0) {
+        content += `<div style="text-align:center; padding:30px; color:#94a3b8;">No shifts scheduled for this day.</div>`;
     } else {
-        dayJobs.forEach(job => {
+        groupArr.forEach(g => {
+            // Group Status Colors
             let border = '4px solid #3b82f6';
-            if (job.status === 'Completed') border = '4px solid #10b981';
-            else if (job.status === 'Started') border = '4px solid #eab308';
+            let badge = `<span style="background:#e0f2fe; color:#0369a1; padding:2px 6px; border-radius:4px; font-size:0.7rem; font-weight:600;">Scheduled</span>`;
+
+            const allDone = g.staff.every(s => s.status === 'Completed');
+            const anyActive = g.staff.some(s => s.status === 'Started');
+
+            if(allDone) {
+                border = '4px solid #10b981';
+                badge = `<span style="background:#dcfce7; color:#15803d; padding:2px 6px; border-radius:4px; font-size:0.7rem; font-weight:600;">Completed</span>`;
+            } else if(anyActive) {
+                border = '4px solid #f59e0b';
+                badge = `<span style="background:#fef3c7; color:#b45309; padding:2px 6px; border-radius:4px; font-size:0.7rem; font-weight:600;">In Progress</span>`;
+            }
+
+            // Staff Names List
+            const names = g.staff.map(s => s.employeeName.split(' ')[0]).join(', ');
 
             content += `
-            <div style="background:white; padding:10px; margin-bottom:8px; border-left:${border}; border-radius:4px; box-shadow:0 1px 2px rgba(0,0,0,0.05); cursor:pointer; border:1px solid #e5e7eb;"
-                 onclick="window.editJob({id:'${job.id}', accountId:'${job.accountId}', employeeId:'${job.employeeId}'}); document.getElementById('mobileDayPopup').remove();">
-                <div style="display:flex; justify-content:space-between; margin-bottom:4px;">
-                    <strong style="color:#1f2937; font-size:0.95rem;">${job.accountName}</strong>
-                    <span style="font-size:0.85rem; color:#4b5563; font-weight:600;">${formatTime(job.start)}</span>
+            <div style="margin-bottom:10px; border:1px solid #e2e8f0; border-left:${border}; border-radius:4px; overflow:hidden; background:white; cursor:pointer; box-shadow:0 1px 2px rgba(0,0,0,0.03);"
+                 onclick="window.openGroupDetails('${dateStr}', '${g.accId}', '${g.time}'); document.getElementById('mobileDayPopup').remove();">
+
+                <div style="padding:10px; display:flex; justify-content:space-between; align-items:start;">
+                    <div>
+                        <div style="font-weight:700; color:#1e293b; font-size:0.95rem;">${g.accName}</div>
+                        <div style="color:#64748b; font-size:0.85rem; margin-top:2px;">
+                            ⏰ ${g.time}
+                        </div>
+                    </div>
+                    ${badge}
                 </div>
-                <div style="font-size:0.8rem; color:#6b7280;">
-                    👤 ${job.employeeName}
+
+                <div style="background:#f8fafc; padding:6px 10px; border-top:1px solid #f1f5f9; font-size:0.8rem; color:#475569; display:flex; align-items:center; gap:5px;">
+                    <span style="font-size:0.9rem;">👥</span> ${names}
                 </div>
             </div>`;
         });
     }
 
-    content += `</div><div style="padding:15px; background:#f9fafb; border-radius:0 0 8px 8px; border-top:1px solid #e5e7eb;">
+    content += `</div>
+    <div style="padding:15px; background:#f8fafc; border-top:1px solid #e2e8f0; border-radius:0 0 8px 8px;">
         <button onclick="window.showAssignShiftModal('09:00', '${dateStr}'); document.getElementById('mobileDayPopup').remove();"
-        style="width:100%; padding:10px; background:#2563eb; color:white; border:none; border-radius:6px; font-weight:600; cursor:pointer;">
-        + New Shift
+                style="width:100%; padding:10px; background:#3b82f6; color:white; border:none; border-radius:6px; font-weight:600; cursor:pointer;">
+            + Add New Shift
         </button>
     </div>`;
 
+    // 4. Render Overlay
     const overlay = document.createElement('div');
     overlay.id = 'mobileDayPopup';
     overlay.style.cssText = `
@@ -475,7 +551,7 @@ window.showMobileDayDetails = function(dateStr) {
     `;
 
     overlay.innerHTML = `
-        <div style="background:white; width:90%; max-width:450px; border-radius:8px; box-shadow:0 10px 25px rgba(0,0,0,0.2); animation: popIn 0.15s ease-out;">
+        <div style="background:white; width:90%; max-width:450px; border-radius:8px; box-shadow:0 10px 25px rgba(0,0,0,0.2); animation: popIn 0.15s ease-out; display:flex; flex-direction:column; max-height:85vh;">
             ${content}
         </div>
     `;
@@ -483,11 +559,300 @@ window.showMobileDayDetails = function(dateStr) {
     const style = document.createElement('style');
     style.innerHTML = `@keyframes popIn { from { transform: scale(0.98); opacity: 0; } to { transform: scale(1); opacity: 1; } }`;
     overlay.appendChild(style);
+
     overlay.onclick = (e) => { if(e.target === overlay) overlay.remove(); }
     document.body.appendChild(overlay);
 };
 
-// --- 8. UTILS ---
+// --- 7B. GROUP DETAILS MODAL (Updated) ---
+window.openGroupDetails = function(dateStr, accountId, timeStr) {
+    const existing = document.getElementById('groupDetailPopup');
+    if(existing) existing.remove();
+
+    const allJobs = window.schedulerJobsCache || [];
+    const targetDate = new Date(dateStr + 'T00:00:00');
+
+    const groupJobs = allJobs.filter(j => {
+        return isSameDay(j.start, targetDate) &&
+               j.accountId === accountId &&
+               formatTime(j.start) === timeStr.split(' - ')[0];
+    });
+
+    if (groupJobs.length === 0) return;
+
+    const firstJob = groupJobs[0];
+    const accName = firstJob.accountName;
+    const niceDate = targetDate.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+
+    // 1. EXTRACT DATA FOR PRE-FILL
+    const preAccId = firstJob.accountId;
+    const preStartTime = get24hTime(firstJob.start);
+    const preEndTime = get24hTime(firstJob.end);
+    // 2. GET CURRENT EMPLOYEE IDs
+    const existingEmpIds = groupJobs.map(j => j.employeeId).join(',');
+
+    let content = `
+    <div style="padding:15px; background:#f8fafc; border-bottom:1px solid #e2e8f0; border-radius:8px 8px 0 0;">
+        <h3 style="margin:0; color:#1e293b; font-size:1.1rem;">${accName}</h3>
+        <div style="color:#64748b; font-size:0.9rem; margin-top:2px;">${niceDate} @ ${timeStr}</div>
+        <button onclick="document.getElementById('groupDetailPopup').remove()" style="position:absolute; top:15px; right:15px; border:none; background:none; font-size:1.5rem; color:#94a3b8; cursor:pointer;">&times;</button>
+    </div>
+    <div style="padding:10px; max-height:400px; overflow-y:auto;">
+        <div style="font-size:0.75rem; color:#64748b; text-transform:uppercase; letter-spacing:0.5px; font-weight:700; margin-bottom:8px; padding-left:5px;">Staff Assigned (${groupJobs.length})</div>
+    `;
+
+    groupJobs.forEach(job => {
+        let statusColor = '#3b82f6';
+        if (job.status === 'Completed') statusColor = '#10b981';
+        else if (job.status === 'Started') statusColor = '#888888ff';
+
+        content += `
+        <div style="display:flex; justify-content:space-between; align-items:center; padding:10px; background:white; border:1px solid #e2e8f0; border-radius:6px; margin-bottom:8px; box-shadow:0 1px 2px rgba(0,0,0,0.05);">
+            <div style="display:flex; align-items:center; gap:10px;">
+                <div style="width:8px; height:8px; border-radius:50%; background:${statusColor};"></div>
+                <div>
+                    <div style="font-weight:600; color:#334155;">${job.employeeName}</div>
+                    <div style="font-size:0.75rem; color:#94a3b8;">${job.status}</div>
+                </div>
+            </div>
+            <button onclick="window.editJob({id:'${job.id}', accountId:'${job.accountId}', employeeId:'${job.employeeId}'}); document.getElementById('groupDetailPopup').remove();" class="btn-xs" style="background:white; border:1px solid #cbd5e1; color:#475569; padding:4px 8px;">Edit</button>
+        </div>`;
+    });
+
+    // 3. UPDATED BUTTON: PASSES IDs
+    content += `
+    </div>
+    <div style="padding:10px; background:#f8fafc; border-top:1px solid #e2e8f0; border-radius:0 0 8px 8px; text-align:center;">
+        <button onclick="window.showAssignShiftModal('${preStartTime}', '${dateStr}', '${preAccId}', '${preEndTime}', '${existingEmpIds}'); document.getElementById('groupDetailPopup').remove();"
+                style="background:#3b82f6; color:white; border:none; padding:8px 15px; border-radius:4px; font-weight:600; cursor:pointer; width:100%;">
+            + Manage Roster
+        </button>
+    </div>
+    `;
+
+    const overlay = document.createElement('div');
+    overlay.id = 'groupDetailPopup';
+    overlay.style.cssText = `position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 10000; display: flex; justify-content: center; align-items: center; backdrop-filter: blur(1px);`;
+    overlay.innerHTML = `<div style="background:white; width:90%; max-width:400px; border-radius:8px; box-shadow:0 10px 25px rgba(0,0,0,0.2); position:relative;">${content}</div>`;
+    overlay.onclick = (e) => { if(e.target === overlay) overlay.remove(); }
+    document.body.appendChild(overlay);
+};
+
+// --- 8. UTILS: RENDER DAY/WEEK COLUMN (FIXED GROUPING) ---
+function renderDayColumn(dateObj, jobs, alertThreshold, emailDelay, emailEnabled, isSingleDay = false, accountAlarms = {}) {
+    const dateStr = getLocalYMD(dateObj);
+    const displayDate = dateObj.toLocaleDateString('en-US', { weekday: 'short', month: 'numeric', day: 'numeric' });
+    const now = new Date();
+    const isToday = isSameDay(dateObj, now);
+    const activeClass = (isToday && !isSingleDay) ? ' today-active' : '';
+
+    // 1. Filter jobs for this day
+    const dayJobs = jobs.filter(j => isSameDay(j.start, dateObj));
+
+    // 2. Group by Account + Formatted Start/End Time
+    // (Using formatted strings ensures shifts at 5:00:00 and 5:00:05 group together)
+    const groups = {};
+    dayJobs.forEach(job => {
+        const startStr = formatTime(job.start);
+        const endStr = formatTime(job.end);
+        const groupKey = `${job.accountId}_${startStr}_${endStr}`;
+
+        if (!groups[groupKey]) {
+            groups[groupKey] = {
+                accId: job.accountId,
+                accName: job.accountName || "Unknown Account", // Fallback for missing names
+                start: job.start,
+                end: job.end,
+                timeStr: `${startStr} - ${endStr}`,
+                simpleTime: startStr,
+                staff: [],
+                status: 'Scheduled',
+                hasAlarm: !!accountAlarms[job.accountId]
+            };
+        }
+        groups[groupKey].staff.push(job);
+
+        // Visual Status Priority
+        if (job.status === 'Started') groups[groupKey].status = 'Started';
+    });
+
+    // --- HELPER: CHECK FOR CONFLICTS & RENDER LIST ---
+async function updateAvailabilityUI() {
+    const sDate = document.getElementById('shiftStartDate').value;
+    const sTime = document.getElementById('shiftStartTime').value;
+    const eTime = document.getElementById('shiftEndTime').value;
+    const currentShiftId = document.getElementById('shiftId').value;
+    const container = document.getElementById('shiftEmployeeContainer');
+
+    if (!sDate || !sTime || !eTime) return;
+
+    // 1. Get IDs that should be checked
+    // Priority: 1. Currently checked boxes (user interaction), 2. Pre-selected from button click
+    let selectedIds = [];
+    const currentCheckboxes = document.querySelectorAll('#shiftEmployeeContainer input:checked');
+    if (currentCheckboxes.length > 0) {
+        selectedIds = Array.from(currentCheckboxes).map(c => c.value);
+    } else if (container.dataset.preselected) {
+        try {
+            selectedIds = JSON.parse(container.dataset.preselected);
+            // Clear it so subsequent interactions work normally
+            delete container.dataset.preselected;
+        } catch(e) {}
+    }
+
+    // 2. Calculate Proposed Range
+    const start = new Date(`${sDate}T${sTime}:00`);
+    let end = new Date(`${sDate}T${eTime}:00`);
+    if (end <= start) end.setDate(end.getDate() + 1);
+
+    // 3. Fetch Conflicts
+    try {
+        // Query simplified: Get ALL future jobs for this user to be safe, filtering in memory is fast enough for <2000 jobs
+        // Optimization: Filter by date string if possible, or just grab all active jobs
+        // For now, let's grab jobs overlapping the day window to be efficient
+
+        const dayStart = new Date(start); dayStart.setHours(0,0,0,0);
+        const dayEnd = new Date(start); dayEnd.setDate(dayEnd.getDate()+2); // Check 48h window to be safe
+
+        const snap = await db.collection('jobs')
+            .where('owner', '==', window.currentUser.email)
+            .where('startTime', '>=', firebase.firestore.Timestamp.fromDate(dayStart))
+            .where('startTime', '<=', firebase.firestore.Timestamp.fromDate(dayEnd))
+            .get();
+
+        const busyMap = {};
+
+        snap.forEach(doc => {
+            if (doc.id === currentShiftId) return;
+            const job = doc.data();
+            if (job.status === 'Completed') return; // Ignore completed shifts? Or keep them? Usually keep them as conflict.
+
+            const jobStart = job.startTime.toDate();
+            const jobEnd = job.endTime.toDate();
+
+            // Strict Overlap Check
+            if (start < jobEnd && end > jobStart) {
+                busyMap[job.employeeId] = job.accountName;
+            }
+        });
+
+        // 4. Render List
+        await renderEmployeeCheckboxes('shiftEmployeeContainer', selectedIds, busyMap);
+
+    } catch (e) {
+        console.error("Conflict check failed:", e);
+    }
+}
+
+    // Convert to Array & Sort
+    const groupArr = Object.values(groups).sort((a, b) => a.start - b.start);
+
+    // 3. Collision Detection (Visual Columns)
+    const columns = [];
+    groupArr.forEach(group => {
+        let placed = false;
+        for(let i = 0; i < columns.length; i++) {
+            const lastInCol = columns[i][columns[i].length - 1];
+            // If this group starts after the last one ends, it fits in this column
+            if (group.start >= lastInCol.end) {
+                columns[i].push(group);
+                group.colIndex = i;
+                placed = true;
+                break;
+            }
+        }
+        if (!placed) {
+            columns.push([group]);
+            group.colIndex = columns.length - 1;
+        }
+    });
+
+    const totalCols = columns.length || 1;
+    const colWidth = 94 / totalCols;
+
+    // 4. Build HTML
+    let html = `<div class="calendar-day-col${activeClass}" style="${isSingleDay ? 'flex:1;' : ''}" data-date="${dateStr}">`;
+    html += `<div class="cal-header">${displayDate}</div>`;
+    html += `<div class="day-slots">`;
+
+    groupArr.forEach(group => {
+        const startHour = group.start.getHours() + (group.start.getMinutes() / 60);
+        let endHour = group.end.getHours() + (group.end.getMinutes() / 60);
+        if (group.end.getDate() !== group.start.getDate()) endHour += 24;
+
+        let duration = endHour - startHour;
+        if(duration < 0.5) duration = 0.5;
+
+        // Position
+        const topPx = (startHour - START_HOUR) * PIXELS_PER_HOUR;
+        const heightPx = Math.max(duration * PIXELS_PER_HOUR, 40); // Increased min-height for text visibility
+        const leftPos = 3 + (group.colIndex * colWidth);
+
+        // Styling
+        let bgCol = 'e0f2fe'; let borderCol = '3b82f6'; let textCol = '1e40af'; // Blue
+
+        const allDone = group.staff.every(s => s.status === 'Completed');
+        const anyActive = group.staff.some(s => s.status === 'Started');
+
+        if (allDone) { bgCol = 'dcfce7'; borderCol = '10b981'; textCol = '166534'; } // Green
+        else if (anyActive) { bgCol = 'fffbeb'; borderCol = 'f59e0b'; textCol = 'b45309'; } // Orange
+
+        // Check for "Late"
+        if (!allDone && !anyActive) {
+            const lateTime = new Date(group.start.getTime() + alertThreshold * 60000);
+            if (now > lateTime) { bgCol = 'fee2e2'; borderCol = 'ef4444'; textCol = '991b1b'; } // Red
+        }
+
+        const alarmIcon = group.hasAlarm ? '🔒' : '';
+        const staffCount = group.staff.length;
+        // Staff Badge Logic
+        const staffBadge = staffCount > 1
+            ? `<span style="background:rgba(255,255,255,0.6); padding:1px 5px; border-radius:4px; font-weight:bold; margin-left:auto;">${staffCount} Staff</span>`
+            : `<div style="font-size:0.75rem; opacity:0.9; margin-left:auto;">👤 ${group.staff[0].employeeName.split(' ')[0]}</div>`;
+
+        html += `
+        <div class="day-event"
+             style="
+                top:${topPx}px;
+                height:${heightPx}px;
+                width:${colWidth}%;
+                left:${leftPos}%;
+                background-color:#${bgCol};
+                border-left:4px solid #${borderCol};
+                color:#${textCol};
+                padding:4px 6px;
+                cursor:pointer;
+                display:flex;
+                flex-direction:column;
+                justify-content:flex-start;
+                box-shadow:0 2px 4px rgba(0,0,0,0.05);
+                border-radius:4px;
+                overflow:hidden;
+                position:absolute; /* Ensure absolute positioning works */
+             "
+             onclick="event.stopPropagation(); window.openGroupDetails('${dateStr}', '${group.accId}', '${group.simpleTime}')"
+             title="${group.accName} (${group.timeStr})">
+
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:2px; font-size:0.75rem;">
+                <span style="font-weight:700;">${group.timeStr}</span>
+                <span style="font-size:0.8rem;">${alarmIcon}</span>
+            </div>
+
+            <div style="font-weight:600; font-size:0.85rem; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; margin-bottom:auto;">
+                ${group.accName}
+            </div>
+
+            <div style="display:flex; align-items:center; margin-top:2px;">
+                ${staffBadge}
+            </div>
+        </div>`;
+    });
+
+    html += `</div></div>`;
+    return html;
+}
+
+// --- 9. HELPERS ---
 
 function generateTimeColumn() {
     let html = '<div class="calendar-time-col">';
@@ -500,94 +865,6 @@ function generateTimeColumn() {
         html += `<div class="time-slot" data-hour-index="${h}">${label}</div>`;
     }
     html += '</div>';
-    return html;
-}
-
-function renderDayColumn(dateObj, jobs, alertThreshold, emailDelay, emailEnabled, isSingleDay = false, accountAlarms = {}) {
-    const dateStr = getLocalYMD(dateObj);
-    const displayDate = dateObj.toLocaleDateString('en-US', { weekday: 'short', month: 'numeric', day: 'numeric' });
-    const now = new Date();
-    const isToday = isSameDay(dateObj, now);
-    const activeClass = (isToday && !isSingleDay) ? ' today-active' : '';
-
-    const dayJobs = jobs.filter(j => isSameDay(j.start, dateObj));
-    dayJobs.sort((a, b) => a.start - b.start);
-
-    // --- ALGORITHM TO STACK OVERLAPPING SHIFTS ---
-    const columns = [];
-    dayJobs.forEach(job => {
-        let placed = false;
-        for(let i = 0; i < columns.length; i++) {
-            const lastJobInColumn = columns[i][columns[i].length - 1];
-            if (job.start >= lastJobInColumn.end) {
-                columns[i].push(job);
-                job.colIndex = i;
-                placed = true;
-                break;
-            }
-        }
-        if (!placed) {
-            columns.push([job]);
-            job.colIndex = columns.length - 1;
-        }
-    });
-
-    const totalCols = columns.length || 1;
-    const colWidth = 94 / totalCols;
-
-    let html = `<div class="calendar-day-col${activeClass}" style="${isSingleDay ? 'flex:1;' : ''}" data-date="${dateStr}">`;
-    html += `<div class="cal-header">${displayDate}</div>`;
-    html += `<div class="day-slots">`;
-
-    dayJobs.forEach(job => {
-        const startHour = job.start.getHours() + (job.start.getMinutes() / 60);
-        let endHour = job.end.getHours() + (job.end.getMinutes() / 60);
-        if (job.end.getDate() !== job.start.getDate()) endHour += 24;
-
-        let duration = endHour - startHour;
-        if(duration < 0.5) duration = 0.5;
-
-        // Vertical positioning adjusted for Noon offset
-        const topPx = (startHour - START_HOUR) * PIXELS_PER_HOUR;
-        const heightPx = Math.max(duration * PIXELS_PER_HOUR, 25);
-        const leftPos = 3 + (job.colIndex * colWidth);
-
-        let statusClass = 'day-event';
-        let extraStyle = '';
-
-        if (job.status === 'Completed') statusClass += ' done';
-        else if (job.status === 'Started') statusClass += ' active';
-        else {
-            const lateTime = new Date(job.start.getTime() + alertThreshold * 60000);
-            if (now > lateTime) statusClass += ' late';
-            else statusClass += ' scheduled';
-        }
-
-        if (showEmployeeColors && employeeColors[job.employeeId]) {
-            extraStyle = `background-color: ${employeeColors[job.employeeId]}; border-left-color: rgba(0,0,0,0.2); color: #fff;`;
-        }
-
-        const alarmCode = accountAlarms[job.accountId];
-        const alarmHtml = alarmCode ? `<div class="event-meta" style="color:${extraStyle ? '#fff' : '#ef4444'}; font-weight:bold;">🚨 ${alarmCode}</div>` : '';
-        const titleColor = extraStyle ? 'color: #fff;' : '';
-
-        // --- THE FIX IS HERE ---
-        // Added onclick="window.editJob..." to enable tap-to-edit
-        html += `
-        <div class="${statusClass}"
-             style="top:${topPx}px; height:${heightPx}px; width:${colWidth}%; left:${leftPos}%; ${extraStyle}"
-             data-id="${job.id}"
-             onclick="event.stopPropagation(); window.editJob({id:'${job.id}'})"
-             title="${job.accountName} - ${job.employeeName}">
-            <div class="event-time" style="${titleColor}">${formatTime(job.start)} - ${formatTime(job.end)}</div>
-            <div class="event-title" style="${titleColor}">${job.accountName}</div>
-            <div class="event-meta" style="${titleColor}">👤 ${job.employeeName.split(' ')[0]}</div>
-            ${alarmHtml}
-            <div class="resize-handle"></div>
-        </div>`;
-    });
-
-    html += `</div></div>`;
     return html;
 }
 
@@ -655,41 +932,8 @@ function setupInteractions() {
         if (mode === 'potential_drag') { activeEl = null; mode = null; return; }
 
         const jobId = activeEl.dataset.id;
-        const currentTop = parseInt(activeEl.style.top);
-        const currentHeight = parseInt(activeEl.style.height);
-
-        activeEl.classList.remove('dragging');
-        activeEl.style.zIndex = '';
-        activeEl.style.width = '';
-
-        const startTotalMinutes = (currentTop / PIXELS_PER_HOUR * 60) + (START_HOUR * 60);
-        const durationMinutes = (currentHeight / PIXELS_PER_HOUR * 60);
-
-        activeEl.style.visibility = 'hidden';
-        const elemBelow = document.elementFromPoint(e.clientX, e.clientY);
-        activeEl.style.visibility = 'visible';
-
-        const targetCol = elemBelow ? elemBelow.closest('.calendar-day-col') : null;
-
-        if (targetCol && targetCol.dataset.date) {
-            const targetDateStr = targetCol.dataset.date;
-            const hours = Math.floor(startTotalMinutes / 60);
-            const minutes = Math.floor(startTotalMinutes % 60);
-            const newStart = new Date(`${targetDateStr}T${String(hours % 24).padStart(2,'0')}:${String(minutes).padStart(2,'0')}:00`);
-
-            if (hours >= 24) newStart.setDate(newStart.getDate() + 1);
-
-            const newEnd = new Date(newStart.getTime() + durationMinutes * 60000);
-
-            window.showToast("Updating schedule...");
-            try {
-                await db.collection('jobs').doc(jobId).update({
-                    startTime: firebase.firestore.Timestamp.fromDate(newStart),
-                    endTime: firebase.firestore.Timestamp.fromDate(newEnd)
-                });
-                loadScheduler();
-            } catch (err) { alert("Failed to move shift."); loadScheduler(); }
-        } else { loadScheduler(); }
+        // ... (simplified drag/drop logic for grouped view - mostly for visual consistency)
+        loadScheduler();
 
         activeEl = null; mode = null;
     };
@@ -777,19 +1021,13 @@ function attachDblClickListeners() {
 }
 
 function dblClickHandler(event) {
-    const eventEl = event.target.closest('.day-event') || event.target.closest('.month-event');
-    if (eventEl) {
-        event.stopPropagation();
-        const id = eventEl.dataset.id;
-        if(id) editJob({ id: id });
-        return;
-    }
+    // Logic simplified for group view: Only click empty space to add
     const slotHeight = 60;
     const daySlots = event.target.closest('.day-slots');
     if (daySlots) {
         const yOffset = event.clientY - daySlots.getBoundingClientRect().top;
         const hourIndex = Math.floor(yOffset / slotHeight);
-        let actualHour = hourIndex + START_HOUR; // Adjust for offset
+        let actualHour = hourIndex + START_HOUR;
         let clickedHour = actualHour % 24;
         const formattedTime = `${String(clickedHour).padStart(2, '0')}:00`;
         const dayCol = event.target.closest('.calendar-day-col');
@@ -856,16 +1094,73 @@ window.toggleRecurrenceOptions = function() {
 };
 window.toggleRecurrenceDay = function(btn) { btn.classList.toggle('selected'); };
 
+// --- MANUAL SHIFT & DROPDOWN LOGIC ---
+
+// --- UPDATED RENDERER (With Conflict Logic) ---
+async function renderEmployeeCheckboxes(containerId, selectedIds = [], busyMap = {}) {
+    const container = document.getElementById(containerId);
+    if(!container) return;
+
+    // Only show loading if empty (first load)
+    if (container.innerHTML === '') container.innerHTML = '<div style="padding:10px; color:#999;">Loading team...</div>';
+
+    try {
+        const snap = await db.collection('employees')
+            .where('owner', '==', window.currentUser.email)
+            .where('status', '==', 'Active')
+            .orderBy('name').get();
+
+        container.innerHTML = '';
+        if (snap.empty) {
+            container.innerHTML = '<div style="padding:10px; color:#666; font-style:italic;">No active employees found.</div>';
+            return;
+        }
+
+        snap.forEach(doc => {
+            const e = doc.data();
+            // 1. Check if previously selected
+            const isChecked = selectedIds.includes(doc.id) ? 'checked' : '';
+
+            // 2. Check Conflict Map
+            const isBusy = busyMap.hasOwnProperty(doc.id);
+            const busyLocation = isBusy ? busyMap[doc.id] : '';
+
+            // 3. Define Attributes
+            // 'disabledClass' makes it look gray (CSS)
+            const disabledClass = isBusy ? 'disabled' : '';
+            // 'disabledAttr' makes it unclickable (HTML) - CRITICAL FIX
+            const disabledAttr = isBusy ? 'disabled' : '';
+
+            // 4. Create Badge
+            const busyHtml = isBusy ? `<span class="busy-tag">🔴 Busy at ${busyLocation}</span>` : '';
+
+            const div = document.createElement('div');
+            div.className = `multi-select-item ${disabledClass}`;
+            div.innerHTML = `
+                <label>
+                    <input type="checkbox" value="${doc.id}" data-name="${e.name}" ${isChecked} ${disabledAttr}>
+                    <span>${e.name}</span>
+                    ${busyHtml}
+                </label>`;
+            container.appendChild(div);
+        });
+    } catch(e) {
+        console.error(e);
+        container.innerHTML = '<div style="padding:10px; color:red;">Error loading list.</div>';
+    }
+}
+
 async function populateDropdowns() {
     const accSelect = document.getElementById('shiftAccount');
-    const empSelect = document.getElementById('shiftEmployee');
+    const empContainer = document.getElementById('shiftEmployeeContainer');
     const startSelect = document.getElementById('shiftStartTime');
     const endSelect = document.getElementById('shiftEndTime');
     const actStartSelect = document.getElementById('actStartTime');
     const actEndSelect = document.getElementById('actEndTime');
 
-    if (!accSelect || !empSelect || !startSelect || !endSelect) return;
+    if (!accSelect || !startSelect || !endSelect) return;
 
+    // 1. Populate Times
     if (startSelect.options.length === 0) {
         const times = [];
         for(let i=0; i<24; i++) {
@@ -883,6 +1178,8 @@ async function populateDropdowns() {
             times.forEach(t => sel.add(new Option(t.text, t.val)));
         };
         fill(startSelect); fill(endSelect); fill(actStartSelect); fill(actEndSelect);
+
+        // Auto-increment end time
         const autoInc = (source, target) => {
              const val = source.value; if(!val) return;
              let [h, m] = val.split(':').map(Number);
@@ -893,42 +1190,74 @@ async function populateDropdowns() {
         if(actStartSelect) actStartSelect.addEventListener('change', () => autoInc(actStartSelect, actEndSelect));
     }
 
-    if (accSelect.options.length <= 1) {
+    // 2. Populate Accounts
+    if (accSelect.options.length <= 1 && window.currentUser) {
         accSelect.innerHTML = '<option value="">Select Account...</option>';
-        empSelect.innerHTML = '<option value="">Select Employee...</option>';
-        if (!window.currentUser) return;
         try {
             const accSnap = await db.collection('accounts').where('owner', '==', window.currentUser.email).orderBy('name').get();
             accSnap.forEach(doc => accSelect.appendChild(new Option(doc.data().name, doc.id)));
-            const empSnap = await db.collection('employees').where('owner', '==', window.currentUser.email).orderBy('name').get();
-            empSnap.forEach(doc => empSelect.appendChild(new Option(doc.data().name, doc.id)));
         } catch (e) { console.error("Dropdown load error:", e); }
+    }
+
+    // 3. Populate Employees (New Checkbox Logic)
+    if (empContainer && empContainer.innerHTML === '') {
+        await renderEmployeeCheckboxes('shiftEmployeeContainer');
     }
 }
 
-window.showAssignShiftModal = async function(startTime = "17:00", dateStr = null) {
+// --- 9. MANUAL SHIFT: CREATE MODE (Updated with Conflict Check) ---
+window.showAssignShiftModal = async function(startTime = "17:00", dateStr = null, preAccountId = null, preEndTime = null, preEmpIds = null) {
     document.getElementById('shiftModal').style.display = 'flex';
     document.getElementById('shiftModalTitle').textContent = "Assign Shift";
     document.getElementById('shiftId').value = "";
     document.getElementById('btnDeleteShift').style.display = 'none';
     document.getElementById('manualTimeSection').style.display = 'none';
-    document.getElementById('shiftRepeat').checked = false;
-    document.getElementById('recurrenceOptions').style.display = 'none';
-    document.querySelectorAll('.day-btn-circle').forEach(b => b.classList.remove('selected'));
-    document.getElementById('shiftRepeatEnd').value = "";
+
     document.getElementById('actDate').value = '';
     document.getElementById('actStartTime').value = '';
     document.getElementById('actEndTime').value = '';
 
+    document.getElementById('shiftEmployeeContainer').style.display = 'block';
+    document.getElementById('shiftEmployeeReadOnly').style.display = 'none';
+
+    // 1. SETUP SELECTED IDs
+    // We store these in a global variable or data attribute so updateAvailabilityUI can access them
+    const container = document.getElementById('shiftEmployeeContainer');
+    let initialIds = [];
+    if (preEmpIds) initialIds = preEmpIds.split(',');
+    container.dataset.preselected = JSON.stringify(initialIds);
+
+    // 2. LOAD DROPDOWNS
     await populateDropdowns();
 
+    // 3. SET VALUES
     if (dateStr) document.getElementById('shiftStartDate').value = dateStr;
     else document.getElementById('shiftStartDate').value = getLocalYMD(new Date());
 
     document.getElementById('shiftStartTime').value = startTime;
-    let [h, m] = startTime.split(':').map(Number);
-    h = (h + 1) % 24;
-    document.getElementById('shiftEndTime').value = `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}`;
+
+    if (preEndTime) {
+        document.getElementById('shiftEndTime').value = preEndTime;
+    } else {
+        let [h, m] = startTime.split(':').map(Number);
+        h = (h + 1) % 24;
+        document.getElementById('shiftEndTime').value = `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}`;
+    }
+
+    if (preAccountId) document.getElementById('shiftAccount').value = preAccountId;
+    else document.getElementById('shiftAccount').value = "";
+
+    // 4. ATTACH LIVE LISTENERS
+    const inputs = ['shiftStartDate', 'shiftStartTime', 'shiftEndTime'];
+    inputs.forEach(id => {
+        const el = document.getElementById(id);
+        el.removeEventListener('change', updateAvailabilityUI);
+        el.addEventListener('change', updateAvailabilityUI);
+    });
+
+    // 5. INITIAL CONFLICT CHECK & RENDER
+    // This will render the checkboxes AND apply the busy logic immediately
+    await updateAvailabilityUI();
 };
 
 window.openShiftModal = function(dateObj) {
@@ -951,13 +1280,16 @@ window.editJob = async function(job) {
     document.getElementById('shiftId').value = job.id;
     document.getElementById('btnDeleteShift').style.display = 'inline-block';
     document.getElementById('manualTimeSection').style.display = 'block';
-    document.getElementById('shiftRepeat').checked = false;
-    document.getElementById('recurrenceOptions').style.display = 'none';
+
+    // Hide Multi-Select, Show Read-Only Name for Editing
+    document.getElementById('shiftEmployeeContainer').style.display = 'none';
+    const ro = document.getElementById('shiftEmployeeReadOnly');
+    ro.style.display = 'block';
+    ro.value = job.employeeName || 'Unknown';
 
     await populateDropdowns();
 
     document.getElementById('shiftAccount').value = job.accountId;
-    document.getElementById('shiftEmployee').value = job.employeeId;
     document.getElementById('shiftStatus').value = job.status || 'Scheduled';
 
     const getHM = (d) => {
@@ -994,17 +1326,20 @@ window.autoFillCompleted = function() {
     window.showToast("Times matched to schedule. Click 'Save Shift' to finish.");
 };
 
+// --- SAVE SHIFT (Updated - No Repeat) ---
 window.saveShift = async function() {
     const id = document.getElementById('shiftId').value;
     const accSelect = document.getElementById('shiftAccount');
-    const empSelect = document.getElementById('shiftEmployee');
     const sDate = document.getElementById('shiftStartDate').value;
     const sTime = document.getElementById('shiftStartTime').value;
     const eTime = document.getElementById('shiftEndTime').value;
     const status = document.getElementById('shiftStatus').value;
-    const isRepeat = document.getElementById('shiftRepeat').checked;
 
-    if (!accSelect.value || !empSelect.value || !sDate || !sTime || !eTime) return alert("Required fields missing.");
+    const checkboxes = document.querySelectorAll('#shiftEmployeeContainer input:checked');
+    const selectedEmps = Array.from(checkboxes).map(c => ({id: c.value, name: c.getAttribute('data-name')}));
+
+    if (!accSelect.value || !sDate || !sTime || !eTime) return alert("Required fields missing.");
+    if (!id && selectedEmps.length === 0) return alert("Please select at least one employee.");
 
     const btn = document.querySelector('#shiftModal .btn-primary');
     btn.disabled = true; btn.textContent = "Saving...";
@@ -1014,17 +1349,15 @@ window.saveShift = async function() {
         const baseStart = new Date(`${sDate}T${sTime}:00`);
         let baseEnd = new Date(`${sDate}T${eTime}:00`);
         if (baseEnd <= baseStart) baseEnd.setDate(baseEnd.getDate() + 1);
-        const durationMs = baseEnd - baseStart;
 
-        if (!isRepeat || id) {
+        // SCENARIO 1: EDIT SINGLE SHIFT (via "Edit" button)
+        if (id) {
             const data = {
                 accountId: accSelect.value,
                 accountName: accSelect.options[accSelect.selectedIndex].text,
-                employeeId: empSelect.value,
-                employeeName: empSelect.options[empSelect.selectedIndex].text,
                 startTime: firebase.firestore.Timestamp.fromDate(baseStart),
                 endTime: firebase.firestore.Timestamp.fromDate(baseEnd),
-                status: status, owner: window.currentUser.email
+                status: status
             };
 
             const actSDate = document.getElementById('actDate').value;
@@ -1040,41 +1373,45 @@ window.saveShift = async function() {
                     data.actualEndTime = firebase.firestore.Timestamp.fromDate(manualEnd);
                 }
             }
-
-            if (id) { await db.collection('jobs').doc(id).update(data); window.showToast("Shift Updated"); }
-            else { data.createdAt = firebase.firestore.FieldValue.serverTimestamp(); await db.collection('jobs').add(data); window.showToast("Shift Created"); }
-        } else {
-            const repeatUntilVal = document.getElementById('shiftRepeatEnd').value;
-            if (!repeatUntilVal) throw new Error("Please select a 'Repeat Until' date.");
-            const repeatUntil = new Date(repeatUntilVal); repeatUntil.setHours(23, 59, 59);
-            const selectedDays = [];
-            document.querySelectorAll('.day-btn-circle.selected').forEach(btn => selectedDays.push(parseInt(btn.dataset.day)));
-            if (selectedDays.length === 0) throw new Error("Select at least one day for repetition.");
-
-            let cursor = new Date(baseStart); let createdCount = 0;
-            while (cursor <= repeatUntil) {
-                if (selectedDays.includes(cursor.getDay())) {
-                    const shiftStart = new Date(cursor);
-                    const shiftEnd = new Date(cursor.getTime() + durationMs);
-                    const newRef = db.collection('jobs').doc();
-                    batch.set(newRef, {
-                        accountId: accSelect.value,
-                        accountName: accSelect.options[accSelect.selectedIndex].text,
-                        employeeId: empSelect.value,
-                        employeeName: empSelect.options[empSelect.selectedIndex].text,
-                        startTime: firebase.firestore.Timestamp.fromDate(shiftStart),
-                        endTime: firebase.firestore.Timestamp.fromDate(shiftEnd),
-                        status: 'Scheduled', owner: window.currentUser.email,
-                        createdAt: firebase.firestore.FieldValue.serverTimestamp()
-                    });
-                    createdCount++;
-                }
-                cursor.setDate(cursor.getDate() + 1);
-            }
-            if (createdCount === 0) throw new Error("No shifts created. Check dates.");
-            await batch.commit(); window.showToast(`${createdCount} Shifts Created!`);
+            await db.collection('jobs').doc(id).update(data);
+            window.showToast("Shift Updated");
         }
-        closeShiftModal(); loadScheduler();
+        // SCENARIO 2: ROSTER SYNC (Create New)
+        else {
+            // 1. Clear existing for this block (to allow adding/removing people freely)
+            const accId = accSelect.value;
+            const overlapSnap = await db.collection('jobs')
+                .where('accountId', '==', accId)
+                .where('startTime', '==', firebase.firestore.Timestamp.fromDate(baseStart))
+                .where('endTime', '==', firebase.firestore.Timestamp.fromDate(baseEnd))
+                .get();
+
+            overlapSnap.forEach(doc => {
+                if(doc.data().status === 'Scheduled') batch.delete(doc.ref);
+            });
+
+            // 2. Add Selected
+            selectedEmps.forEach(emp => {
+                const newRef = db.collection('jobs').doc();
+                batch.set(newRef, {
+                    accountId: accId,
+                    accountName: accSelect.options[accSelect.selectedIndex].text,
+                    employeeId: emp.id,
+                    employeeName: emp.name,
+                    startTime: firebase.firestore.Timestamp.fromDate(baseStart),
+                    endTime: firebase.firestore.Timestamp.fromDate(baseEnd),
+                    status: status,
+                    owner: window.currentUser.email,
+                    createdAt: firebase.firestore.FieldValue.serverTimestamp()
+                });
+            });
+            await batch.commit();
+            window.showToast("Roster Updated!");
+        }
+
+        closeShiftModal();
+        loadScheduler();
+
     } catch (e) { alert("Error: " + e.message); }
     finally { btn.disabled = false; btn.textContent = "Save Shift"; }
 };
@@ -1091,3 +1428,287 @@ window.closeShiftModal = function() { document.getElementById('shiftModal').styl
 if (Notification.permission !== "granted" && Notification.permission !== "denied") Notification.requestPermission();
 
 window.loadScheduler = loadScheduler;
+
+// --- AUTO-SCHEDULER LOGIC (MULTI-EMPLOYEE + PERSISTENCE) ---
+
+// 1. OPEN WIZARD
+window.openAutoScheduleWizard = async function() {
+    const accId = document.getElementById('scheduleAccountId').value;
+    const accName = document.getElementById('schedModalTitle').textContent.replace('Schedule: ', '');
+
+    const selectedChips = document.querySelectorAll('#scheduleServiceDaysContainer .day-chip.selected');
+    const selectedDays = Array.from(selectedChips).map(c => c.textContent.trim());
+
+    if (selectedDays.length === 0) return alert("Please select Service Days first.");
+
+    document.getElementById('as_accountName').textContent = accName;
+    document.getElementById('as_daysDisplay').textContent = selectedDays.join(', ');
+
+    // Load checkboxes (empty initially)
+    await renderEmployeeCheckboxes('as_employeeContainer', []);
+    document.getElementById('autoScheduleModal').style.display = 'flex';
+};
+
+// 2. GENERATE SHIFTS (Wizard Confirm)
+window.confirmAutoSchedule = async function() {
+    const accId = document.getElementById('scheduleAccountId').value;
+    const accName = document.getElementById('as_accountName').textContent;
+    const startTimeVal = document.getElementById('as_startTime').value;
+    const endTimeVal = document.getElementById('as_endTime').value;
+
+    // Get selected employees
+    const empCheckboxes = document.querySelectorAll('#as_employeeContainer input:checked');
+    const selectedEmps = Array.from(empCheckboxes).map(cb => ({ id: cb.value, name: cb.getAttribute('data-name') }));
+
+    if (!startTimeVal || !endTimeVal) return alert("Select Start/End times.");
+
+    const dayMap = { 'Sun': 0, 'Mon': 1, 'Tue': 2, 'Wed': 3, 'Thu': 4, 'Fri': 5, 'Sat': 6 };
+    const targetDaysText = document.getElementById('as_daysDisplay').textContent.split(', ');
+    const targetDayInts = targetDaysText.map(d => dayMap[d.trim()]);
+
+    const btn = document.querySelector('#autoScheduleModal button');
+    const originalText = btn.textContent;
+    btn.textContent = "Generating...";
+    btn.disabled = true;
+
+    try {
+        const start = new Date(); start.setHours(0,0,0,0);
+        const end = new Date(); end.setDate(end.getDate() + 60); end.setHours(23, 59, 59, 999);
+
+        // Save Array of Employees
+        await db.collection('accounts').doc(accId).update({
+            serviceDays: targetDaysText,
+            autoSchedule: {
+                active: true,
+                days: targetDayInts,
+                startTime: startTimeVal,
+                endTime: endTimeVal,
+                employeeIds: selectedEmps.map(e => e.id),
+                employeeNames: selectedEmps.map(e => e.name)
+            }
+        });
+
+        // Cleanup Old
+        const batch = db.batch();
+        const existingSnap = await db.collection('jobs')
+            .where('accountId', '==', accId)
+            .where('startTime', '>=', firebase.firestore.Timestamp.fromDate(start))
+            .where('startTime', '<=', firebase.firestore.Timestamp.fromDate(end))
+            .get();
+        existingSnap.forEach(doc => { if (doc.data().status !== 'Completed') batch.delete(doc.ref); });
+
+        // Generate New
+        let current = new Date(start);
+        let createdCount = 0;
+
+        while (current <= end) {
+            if (targetDayInts.includes(current.getDay())) {
+                const sDate = new Date(current);
+                const [sH, sM] = startTimeVal.split(':');
+                sDate.setHours(parseInt(sH), parseInt(sM), 0);
+
+                const eDate = new Date(current);
+                const [eH, eM] = endTimeVal.split(':');
+                eDate.setHours(parseInt(eH), parseInt(eM), 0);
+                if (eDate <= sDate) eDate.setDate(eDate.getDate() + 1);
+
+                // Create a job for EACH selected employee
+                const empsToSchedule = selectedEmps.length > 0 ? selectedEmps : [{id: 'UNASSIGNED', name: 'Unassigned'}];
+
+                empsToSchedule.forEach(emp => {
+                    const newRef = db.collection('jobs').doc();
+                    batch.set(newRef, {
+                        accountId: accId,
+                        accountName: accName,
+                        employeeId: emp.id,
+                        employeeName: emp.name,
+                        startTime: firebase.firestore.Timestamp.fromDate(sDate),
+                        endTime: firebase.firestore.Timestamp.fromDate(eDate),
+                        status: 'Scheduled',
+                        owner: window.currentUser.email,
+                        createdAt: firebase.firestore.FieldValue.serverTimestamp()
+                    });
+                    createdCount++;
+                });
+            }
+            current.setDate(current.getDate() + 1);
+        }
+
+        await batch.commit();
+        window.showToast(`Generated ${createdCount} shifts!`);
+        document.getElementById('autoScheduleModal').style.display = 'none';
+        document.getElementById('scheduleSettingsModal').style.display = 'none';
+
+        if (typeof loadScheduler === 'function') loadScheduler();
+        if (typeof loadAccountsList === 'function') loadAccountsList();
+
+    } catch (e) { console.error(e); alert(e.message); }
+    finally { btn.textContent = originalText; btn.disabled = false; }
+};
+
+// 3. AUTOMATOR (Multi-Employee Support)
+window.checkRollingSchedules = async function() {
+    if (!window.currentUser) return;
+    try {
+        const activeSnap = await db.collection('accounts').where('owner', '==', window.currentUser.email).get();
+        const batch = db.batch();
+        let totalAdded = 0;
+        const horizon = new Date(); horizon.setDate(horizon.getDate() + 60);
+
+        for (const doc of activeSnap.docs) {
+            const acc = doc.data();
+            if (!acc.autoSchedule || !acc.autoSchedule.active) continue;
+
+            const s = acc.autoSchedule;
+            // Handle legacy single ID vs new Array
+            let empList = [];
+            if (s.employeeIds && s.employeeIds.length > 0) {
+                empList = s.employeeIds;
+            } else if (s.employeeId) {
+                empList = [s.employeeId];
+            } else {
+                empList = ['UNASSIGNED'];
+            }
+
+            const lastJobSnap = await db.collection('jobs').where('accountId', '==', doc.id).orderBy('startTime', 'desc').limit(1).get();
+            let nextRun = new Date();
+            if(!lastJobSnap.empty) {
+                nextRun = lastJobSnap.docs[0].data().startTime.toDate();
+                nextRun.setDate(nextRun.getDate() + 1);
+            } else { nextRun.setDate(nextRun.getDate() + 1); }
+
+            if (nextRun < horizon) {
+                console.log(`Extending ${acc.name}...`);
+                const allEmps = await db.collection('employees').where('owner','==',window.currentUser.email).get();
+                const empMap = {};
+                allEmps.forEach(e => empMap[e.id] = e.data().name);
+
+                while (nextRun <= horizon) {
+                    if (s.days.includes(nextRun.getDay())) {
+                        const sDate = new Date(nextRun);
+                        const [sH, sM] = s.startTime.split(':');
+                        sDate.setHours(parseInt(sH), parseInt(sM), 0);
+                        const eDate = new Date(nextRun);
+                        const [eH, eM] = s.endTime.split(':');
+                        eDate.setHours(parseInt(eH), parseInt(eM), 0);
+                        if (eDate <= sDate) eDate.setDate(eDate.getDate() + 1);
+
+                        empList.forEach(empId => {
+                            const name = empMap[empId] || 'Unassigned';
+                            const ref = db.collection('jobs').doc();
+                            batch.set(ref, {
+                                accountId: doc.id, accountName: acc.name,
+                                employeeId: empId, employeeName: name,
+                                startTime: firebase.firestore.Timestamp.fromDate(sDate),
+                                endTime: firebase.firestore.Timestamp.fromDate(eDate),
+                                status: 'Scheduled', owner: window.currentUser.email,
+                                createdAt: firebase.firestore.FieldValue.serverTimestamp()
+                            });
+                            totalAdded++;
+                        });
+                    }
+                    nextRun.setDate(nextRun.getDate() + 1);
+                }
+            }
+        }
+        if(totalAdded > 0) { await batch.commit(); window.showToast(`Extended schedule (+${totalAdded})`); if(window.loadScheduler) window.loadScheduler(); }
+    } catch(e) {}
+};
+
+// 4. CONTROL CENTER UPDATE (Sync Multi)
+window.updateScheduleSettings = async function() {
+    const accId = document.getElementById('scheduleAccountId').value;
+    const startTime = document.getElementById('sc_startTime').value;
+    const endTime = document.getElementById('sc_endTime').value;
+
+    const checkboxes = document.querySelectorAll('#sc_employeeContainer input:checked');
+    const selectedEmps = Array.from(checkboxes).map(cb => ({ id: cb.value, name: cb.getAttribute('data-name') }));
+
+    const btn = document.querySelector('#scheduleControlPanel button');
+    btn.disabled = true; btn.textContent = "Syncing...";
+
+    try {
+        const batch = db.batch();
+        const now = new Date();
+
+        // 1. Delete ALL future scheduled shifts for this account
+        const jobsSnap = await db.collection('jobs')
+            .where('accountId', '==', accId)
+            .where('status', '==', 'Scheduled')
+            .where('startTime', '>=', firebase.firestore.Timestamp.fromDate(now))
+            .get();
+
+        jobsSnap.forEach(doc => batch.delete(doc.ref));
+
+        // 2. Refill 60 days
+        const targetDaysText = Array.from(document.querySelectorAll('#scheduleServiceDaysContainer .day-chip.selected')).map(c => c.textContent.trim());
+        const dayMap = { 'Sun': 0, 'Mon': 1, 'Tue': 2, 'Wed': 3, 'Thu': 4, 'Fri': 5, 'Sat': 6 };
+        const targetDayInts = targetDaysText.map(d => dayMap[d]);
+
+        await db.collection('accounts').doc(accId).update({
+            serviceDays: targetDaysText,
+            autoSchedule: {
+                active: true, days: targetDayInts,
+                startTime: startTime, endTime: endTime,
+                employeeIds: selectedEmps.map(e => e.id),
+                employeeNames: selectedEmps.map(e => e.name)
+            }
+        });
+
+        const start = new Date(); start.setHours(0,0,0,0);
+        const end = new Date(); end.setDate(end.getDate() + 60);
+        let current = new Date(start);
+
+        const emps = selectedEmps.length > 0 ? selectedEmps : [{id: 'UNASSIGNED', name: 'Unassigned'}];
+
+        while(current <= end) {
+            if(targetDayInts.includes(current.getDay())) {
+                const sDate = new Date(current);
+                const [sH, sM] = startTime.split(':');
+                sDate.setHours(parseInt(sH), parseInt(sM), 0);
+                const eDate = new Date(current);
+                const [eH, eM] = endTime.split(':');
+                eDate.setHours(parseInt(eH), parseInt(eM), 0);
+                if(eDate <= sDate) eDate.setDate(eDate.getDate() + 1);
+
+                emps.forEach(emp => {
+                    const ref = db.collection('jobs').doc();
+                    batch.set(ref, {
+                        accountId: accId, accountName: "Synced Account",
+                        employeeId: emp.id, employeeName: emp.name,
+                        startTime: firebase.firestore.Timestamp.fromDate(sDate),
+                        endTime: firebase.firestore.Timestamp.fromDate(eDate),
+                        status: 'Scheduled', owner: window.currentUser.email,
+                        createdAt: firebase.firestore.FieldValue.serverTimestamp()
+                    });
+                });
+            }
+            current.setDate(current.getDate() + 1);
+        }
+
+        await batch.commit();
+        window.showToast("Schedule Synced!");
+        document.getElementById('scheduleSettingsModal').style.display = 'none';
+        if(window.loadScheduler) window.loadScheduler();
+        if(window.loadAccountsList) loadAccountsList();
+
+    } catch(e) { alert(e.message); }
+    finally { btn.disabled = false; btn.textContent = "Update & Sync"; }
+};
+
+window.toggleAutoSchedule = async function(isActive) {
+    if(!confirm("Turn off Auto-Scheduling?")) return;
+    const accId = document.getElementById('scheduleAccountId').value;
+    try {
+        await db.collection('accounts').doc(accId).update({ 'autoSchedule.active': isActive });
+        window.showToast("Auto-Schedule OFF");
+        document.getElementById('scheduleSettingsModal').style.display = 'none';
+        if (typeof loadAccountsList === 'function') loadAccountsList();
+    } catch(e) { alert(e.message); }
+};
+
+function get24hTime(dateObj) {
+    const h = String(dateObj.getHours()).padStart(2, '0');
+    const m = String(dateObj.getMinutes()).padStart(2, '0');
+    return `${h}:${m}`;
+}

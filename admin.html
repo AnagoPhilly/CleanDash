@@ -325,9 +325,23 @@
         <div style="max-width: 1200px; margin: 0 auto;">
             <div class="content-card">
                 <div class="card-header" style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;">
-                    <h2>Master Client Database</h2>
+
+                    <div style="display:flex; align-items:center;">
+                        <h2 style="margin:0;">Master Client Database</h2>
+                        <span id="statMasterActive" class="badge badge-active" style="font-size: 1rem; margin-left: 15px;">Active: ...</span>
+                        <span id="statMasterOrphan" class="badge" style="font-size: 1rem; margin-left: 10px; background:#f3f4f6; color:#6b7280; border:1px solid #d1d5db;">Orphans: ...</span>
+                    </div>
 
                     <div style="display:flex; align-items:center; gap:15px;">
+
+                        <div style="display:flex; align-items:center; background:#f9fafb; padding:5px 10px; border-radius:8px; border:1px solid #e5e7eb;">
+                            <label class="switch">
+                                <input type="checkbox" id="toggleOrphans" onchange="filterMasterAccounts()">
+                                <span class="slider"></span>
+                            </label>
+                            <span style="margin-left:8px; font-size:0.85rem; font-weight:600; color:#4b5563;">Orphans Only</span>
+                        </div>
+
                         <div style="display:flex; align-items:center; background:#f9fafb; padding:5px 10px; border-radius:8px; border:1px solid #e5e7eb;">
                             <label class="switch">
                                 <input type="checkbox" id="toggleInactive" onchange="filterMasterAccounts()">

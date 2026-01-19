@@ -63,7 +63,10 @@
 <body>
 
 <div id="userEmail" style="display:none;"></div>
-<div id="appLoading"><div>Loading CleanDash...</div><div></div></div>
+<div id="appLoading">
+    <div class="loading-spinner"></div>
+    <span>Loading CleanDash...</span>
+</div>
 
 <div id="loginPage" class="login-container">
     <div class="login-box">
@@ -608,7 +611,6 @@
         <div id="addAccountModal" class="modal">
             <div class="modal-content">
                 <h2>Add New Account</h2>
-
                 <div style="display: flex; gap: 10px; align-items: flex-end; margin-bottom: 15px; padding: 15px; background: #f0fdfa; border: 1px dashed #0d9488; border-radius: 8px;">
                     <div class="input-wrapper" style="flex: 1; margin-bottom: 0;">
                         <label for="accountPID" style="color: #0f766e; font-weight: 700;">Account ID (PID)</label>
@@ -622,7 +624,6 @@
                     <label for="accountName">Account Name (Location)</label>
                     <input type="text" id="accountName" placeholder="e.g. Downtown Office Park" />
                 </div>
-
                 <div class="input-wrapper" style="margin-bottom:10px;">
                     <label for="accountStreet">Street Address</label>
                     <input type="text" id="accountStreet" placeholder="e.g. 123 Main St" />
@@ -641,17 +642,14 @@
                         <input type="text" id="accountZip" placeholder="19000" />
                     </div>
                 </div>
-
                 <div class="split-inputs-container">
                     <div class="input-wrapper"><label for="accountRevenue">Monthly Revenue ($)</label><input type="number" id="accountRevenue" placeholder="0.00" /></div>
                     <div class="input-wrapper"><label for="accountAlarm">Alarm Code</label><input type="text" id="accountAlarm" placeholder="e.g. 1234#" /></div>
                 </div>
-
                 <div class="input-wrapper" style="margin-bottom: 10px;">
                     <label for="accountGeofence">Geofence Radius (meters)</label>
                     <input type="number" id="accountGeofence" placeholder="50" value="50" />
                 </div>
-
                 <div class="split-inputs-container">
                     <div class="input-wrapper"><label for="accountStartDate">Start Date</label><input type="date" id="accountStartDate" /></div>
                     <div class="input-wrapper"><label for="accountEndDate">End Date (Optional)</label><input type="date" id="accountEndDate" /><small style="color:#666; font-size:0.7rem;">Leave blank if active</small></div>
@@ -674,19 +672,43 @@
         <div id="editAccountModal" class="modal">
             <div class="modal-content" style="max-width: 500px;">
                 <h2 id="editAccountModalTitle">Edit Location</h2>
-
                 <input type="hidden" id="editAccountId" />
 
                 <div class="split-inputs-container">
                     <div class="input-wrapper">
-                        <label for="editAccountAlarm">🚨 Alarm/Door Code</label>
+                        <label for="editAccountAlarm">Alarm/Door Code</label>
                         <input type="text" id="editAccountAlarm" placeholder="e.g. 1234" />
                     </div>
                 </div>
 
                 <div class="input-wrapper">
+                    <label for="editAccountGeofence">Geofence (Meters)</label>
+                    <input type="number" id="editAccountGeofence" placeholder="50" step="5" min="5" />
+                </div>
+
+                <div class="input-wrapper">
+                    <label>Pin Location (Drag to Adjust)</label>
+                    <div id="editAccountMap" style="height: 300px; border-radius: 6px; border: 1px solid #ccc;"></div>
+                    <div style="display:flex; justify-content:space-between; margin-top:5px;">
+                        <small id="pinHelpText" style="color:#666;">Drag pin to set exact building location.</small>
+                    </div>
+                </div>
+
+                <div class="modal-buttons">
+                    <button onclick="saveEditedAccount(event)" class="btn btn-primary">Save Location Details</button>
+                    <button onclick="hideEditAccount()" class="cancel">Close</button>
+                </div>
+            </div>
+        </div>
+
+        <div id="scheduleSettingsModal" class="modal">
+            <div class="modal-content" style="max-width: 500px;">
+                <h2 id="schedModalTitle">Manage Schedule</h2>
+                <input type="hidden" id="scheduleAccountId" />
+
+                <div class="input-wrapper">
                     <label>Service Days</label>
-                    <div class="day-selector" id="editServiceDaysContainer">
+                    <div class="day-selector" id="scheduleServiceDaysContainer">
                         <div class="day-chip" onclick="toggleDayChip(this)">Mon</div>
                         <div class="day-chip" onclick="toggleDayChip(this)">Tue</div>
                         <div class="day-chip" onclick="toggleDayChip(this)">Wed</div>
@@ -697,22 +719,164 @@
                     </div>
                 </div>
 
-                <div class="input-wrapper">
-                    <label for="editAccountGeofence">🌐 Geofence (Meters)</label>
-                    <input type="number" id="editAccountGeofence" placeholder="50" step="5" min="5" />
-                </div>
+                <div id="scheduleControlPanel" style="display:none; background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 8px; padding: 15px; margin-bottom: 20px;">
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+                        <h4 style="margin:0; color:#0d9488; display:flex; align-items:center; gap:5px;">
+                            Recurring Schedule
+                            <span style="font-size:0.7rem; background:#dcfce7; color:#166534; padding:2px 6px; border-radius:4px;">ACTIVE</span>
+                        </h4>
+                        <button onclick="toggleAutoSchedule(false)" style="font-size:0.75rem; color:#ef4444; background:none; border:none; text-decoration:underline; cursor:pointer;">Turn Off</button>
+                    </div>
 
-                <div class="input-wrapper">
-                    <label>📍 Pin Location (Drag to Adjust)</label>
-                    <div id="editAccountMap" style="height: 300px; border-radius: 6px; border: 1px solid #ccc;"></div>
-                    <div style="display:flex; justify-content:space-between; margin-top:5px;">
-                        <small id="pinHelpText" style="color:#666;">Drag pin to set exact building location.</small>
+                    <div class="input-wrapper">
+                        <label>Assigned Team (Select all that apply)</label>
+                        <div id="sc_employeeContainer" class="multi-select-box"></div>
+                    </div>
+
+                    <div class="split-inputs-container">
+                        <div class="input-wrapper">
+                            <label>Start Time</label>
+                            <input type="time" id="sc_startTime" />
+                        </div>
+                        <div class="input-wrapper">
+                            <label>End Time</label>
+                            <input type="time" id="sc_endTime" />
+                        </div>
+                    </div>
+
+                    <div class="input-wrapper" style="margin-top:5px;">
+                        <button onclick="updateScheduleSettings()" class="btn" style="width:100%; background:#0d9488; color:white; font-weight:bold;">
+                            Update & Sync Future Shifts
+                        </button>
+                        <p style="font-size:0.75rem; color:#666; text-align:center; margin-top:5px;">
+                            Updates the master plan and regenerates all future scheduled shifts.
+                        </p>
                     </div>
                 </div>
 
+                <div id="scheduleSetupContainer" style="margin-top:20px; text-align:center;">
+                    <button id="btnInitSchedule" type="button" onclick="openAutoScheduleWizard()" class="btn" style="width:100%; background:#8b5cf6; color:white;">
+                        Setup Auto-Schedule
+                    </button>
+                </div>
+
+                <div class="modal-buttons" style="margin-top:20px;">
+                    <button onclick="document.getElementById('scheduleSettingsModal').style.display='none'" class="cancel">Close</button>
+                </div>
+            </div>
+        </div>
+
+        <div id="autoScheduleModal" class="modal" style="z-index: 10010;">
+            <div class="modal-content" style="max-width: 400px;">
+                <h2 style="color:#8b5cf6;">⚡ Auto-Scheduler</h2>
+                <p style="font-size:0.9rem; color:#666; margin-bottom:15px;">
+                    Configure the default schedule for <strong id="as_accountName" style="color:#111;">this account</strong>.
+                </p>
+
+                <div style="background:#f0fdfa; border:1px solid #ccfbf1; padding:10px; border-radius:6px; margin-bottom:15px; font-size:0.85rem; color:#0f766e;">
+                    <strong>Set & Forget:</strong> This will generate shifts for the next <strong>2 months</strong> and automatically keep the schedule full moving forward.
+                </div>
+
+                <div class="input-wrapper">
+                    <label>Shift Time</label>
+                    <div style="display:flex; gap:10px;">
+                        <input type="time" id="as_startTime" value="17:00" />
+                        <span style="align-self:center;">-</span>
+                        <input type="time" id="as_endTime" value="21:00" />
+                    </div>
+                </div>
+
+                <div class="input-wrapper">
+                    <label>Assign Team (Select all that apply)</label>
+                    <div id="as_employeeContainer" class="multi-select-box"></div>
+                </div>
+
+                <div class="input-wrapper" style="background:#f3f4f6; padding:10px; border-radius:6px; margin-bottom:20px;">
+                    <label style="margin-bottom:5px;">Generating shifts for:</label>
+                    <div id="as_daysDisplay" style="font-weight:bold; color:#8b5cf6;">Mon, Wed, Fri</div>
+                </div>
+
                 <div class="modal-buttons">
-                    <button onclick="saveEditedAccount(event)" class="btn btn-primary">Save Operational Data</button>
-                    <button onclick="hideEditAccount()" class="cancel">Cancel</button>
+                    <button onclick="confirmAutoSchedule()" class="btn" style="background:#8b5cf6; color:white;">Start Auto-Schedule</button>
+                    <button onclick="document.getElementById('autoScheduleModal').style.display='none'" class="cancel">Close</button>
+                </div>
+            </div>
+        </div>
+
+        <div id="shiftModal" class="modal">
+            <div class="modal-content">
+                <h2 id="shiftModalTitle">Assign Shift</h2>
+                <input type="hidden" id="shiftId" />
+
+                <div class="input-wrapper" style="margin-bottom:15px;">
+                    <label for="shiftAccount">Account (Location)</label>
+                    <select id="shiftAccount"></select>
+                </div>
+
+                <div class="input-wrapper" style="margin-bottom:15px;">
+                    <label>Team Members</label>
+                    <div id="shiftEmployeeContainer" class="multi-select-box"></div>
+                    <input type="text" id="shiftEmployeeReadOnly" readonly style="display:none; background:#f3f4f6; color:#666;" />
+                </div>
+
+                <div class="input-wrapper" style="margin-bottom: 15px;">
+                    <label for="shiftStartDate">Shift Date</label>
+                    <input type="date" id="shiftStartDate" />
+                </div>
+
+                <div class="split-inputs-container">
+                    <div class="input-wrapper">
+                        <label for="shiftStartTime">Start Time</label>
+                        <select id="shiftStartTime"></select>
+                    </div>
+                    <div class="input-wrapper">
+                        <label for="shiftEndTime">End Time</label>
+                        <select id="shiftEndTime"></select>
+                    </div>
+                </div>
+
+                <div id="manualTimeSection" style="background:#f9fafb; padding:15px; border-radius:8px; border:1px dashed #d1d5db; margin-top:20px; margin-bottom:20px; display:none;">
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+                        <h4 style="margin:0; font-size:0.9rem; color:#b45309;">⚠️ Manual Time Override</h4>
+                        <button type="button" onclick="autoFillCompleted()" class="btn-xs" style="background:#dcfce7; color:#166534; border:1px solid #86efac; padding: 6px 12px; font-size:0.8rem;">
+                            ⚡ Override Completed
+                        </button>
+                    </div>
+
+                    <div class="input-wrapper" style="margin-bottom: 10px;">
+                        <label for="actDate">Date Worked</label>
+                        <input type="date" id="actDate" />
+                    </div>
+
+                    <div class="split-inputs-container">
+                        <div class="input-wrapper">
+                            <label for="actStartTime">Actual In</label>
+                            <select id="actStartTime">
+                                <option value="">-- Select --</option>
+                            </select>
+                        </div>
+                        <div class="input-wrapper">
+                            <label for="actEndTime">Actual Out</label>
+                            <select id="actEndTime">
+                                <option value="">-- Select --</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="input-wrapper" style="margin-top:10px;">
+                        <label for="shiftStatus">Status</label>
+                        <select id="shiftStatus">
+                            <option value="Scheduled">Not Started</option>
+                            <option value="Started">Started</option>
+                            <option value="Completed">Completed</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="modal-buttons" style="margin-top: 1.5rem;">
+                    <button onclick="saveShift()" class="btn btn-primary">Save Shift</button>
+                    <button onclick="deleteJobFromModal()" id="btnDeleteShift" class="btn btn-danger" style="display:none;">Delete</button>
+                    <button onclick="closeShiftModal()" class="cancel">Cancel</button>
                 </div>
             </div>
         </div>
@@ -776,7 +940,7 @@
                 </div>
 
                 <div class="input-wrapper" style="margin-bottom:10px;">
-                    <label>initial password</label>
+                    <label>Initial Password</label>
                     <div style="padding:10px; background:#f3f4f6; border:1px solid #e5e7eb; border-radius:6px; color:#4b5563; font-size:0.9rem;">
                         Default set to: <strong>password</strong>
                     </div>
@@ -804,298 +968,191 @@
             </div>
         </div>
 
-        <div id="shiftModal" class="modal">
-            <div class="modal-content">
-                <h2 id="shiftModalTitle">Assign Shift</h2>
-                <input type="hidden" id="shiftId" />
-
-                <div class="input-wrapper" style="margin-bottom:15px;">
-                    <label for="shiftAccount">Account (Location)</label>
-                    <select id="shiftAccount"></select>
-                </div>
-
-                <div class="input-wrapper" style="margin-bottom:15px;">
-                    <label for="shiftEmployee">Employee</label>
-                    <select id="shiftEmployee"></select>
-                </div>
-
-                <div class="input-wrapper" style="margin-bottom: 15px;">
-                    <label for="shiftStartDate">Shift Date</label>
-                    <input type="date" id="shiftStartDate" />
-                </div>
-
-                <div class="split-inputs-container">
-                    <div class="input-wrapper">
-                        <label for="shiftStartTime">Start Time</label>
-                        <select id="shiftStartTime"></select>
-                    </div>
-                    <div class="input-wrapper">
-                        <label for="shiftEndTime">End Time</label>
-                        <select id="shiftEndTime"></select>
-                    </div>
-                </div>
-
-                <div class="input-wrapper" style="margin-top: 15px;">
-                    <input type="checkbox" id="shiftRepeat" class="hidden-checkbox" onchange="toggleRecurrenceOptions()">
-                    <label for="shiftRepeat" class="btn-repeat-toggle">
-                        🔄 Click here to repeat schedule
-                    </label>
-                </div>
-
-                <div id="recurrenceOptions" style="display:none; background:#f9fafb; padding:15px; border:1px solid #e5e7eb; border-radius:8px; margin-top:10px;">
-                    <div class="input-wrapper">
-                        <label style="margin-bottom:8px; display:block;">Select Days:</label>
-                        <div class="day-selector" style="display:flex; gap:8px; flex-wrap:wrap;">
-                            <button type="button" class="day-btn-circle" data-day="1" onclick="toggleRecurrenceDay(this)">M</button>
-                            <button type="button" class="day-btn-circle" data-day="2" onclick="toggleRecurrenceDay(this)">T</button>
-                            <button type="button" class="day-btn-circle" data-day="3" onclick="toggleRecurrenceDay(this)">W</button>
-                            <button type="button" class="day-btn-circle" data-day="4" onclick="toggleRecurrenceDay(this)">T</button>
-                            <button type="button" class="day-btn-circle" data-day="5" onclick="toggleRecurrenceDay(this)">F</button>
-                            <button type="button" class="day-btn-circle" data-day="6" onclick="toggleRecurrenceDay(this)">S</button>
-                            <button type="button" class="day-btn-circle" data-day="0" onclick="toggleRecurrenceDay(this)">S</button>
-                        </div>
-                    </div>
-                    <div class="input-wrapper" style="margin-top:10px;">
-                        <label for="shiftRepeatEnd">Repeat Until Date:</label>
-                        <input type="date" id="shiftRepeatEnd" />
-                    </div>
-                </div>
-
-                <div id="manualTimeSection" style="background:#f9fafb; padding:15px; border-radius:8px; border:1px dashed #d1d5db; margin-top:20px; margin-bottom:20px; display:none;">
-
-                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
-                        <h4 style="margin:0; font-size:0.9rem; color:#b45309;">⚠️ Manual Time Override</h4>
-                        <button type="button" onclick="autoFillCompleted()" class="btn-xs" style="background:#dcfce7; color:#166534; border:1px solid #86efac; padding: 6px 12px; font-size:0.8rem;">
-                            ⚡ Override Completed
-                        </button>
-                    </div>
-
-                    <div class="input-wrapper" style="margin-bottom: 10px;">
-                        <label for="actDate">Date Worked</label>
-                        <input type="date" id="actDate" />
-                    </div>
-
-                    <div class="split-inputs-container">
-                        <div class="input-wrapper">
-                            <label for="actStartTime">Actual In</label>
-                            <select id="actStartTime">
-                                <option value="">-- Select --</option>
-                            </select>
-                        </div>
-                        <div class="input-wrapper">
-                            <label for="actEndTime">Actual Out</label>
-                            <select id="actEndTime">
-                                <option value="">-- Select --</option>
-                            </select>
-                        </div>
-                    </div>
-
-                    <div class="input-wrapper" style="margin-top:10px;">
-                        <label for="shiftStatus">Status</label>
-                        <select id="shiftStatus">
-                            <option value="Scheduled">Not Started</option>
-                            <option value="Started">Started</option>
-                            <option value="Completed">Completed</option>
-                        </select>
-                    </div>
-                </div>
-
-                <div class="modal-buttons" style="margin-top: 1.5rem;">
-                    <button onclick="saveShift()" class="btn btn-primary">Save Shift</button>
-                    <button onclick="deleteJobFromModal()" id="btnDeleteShift" class="btn btn-danger" style="display:none;">Delete</button>
-                    <button onclick="closeShiftModal()" class="cancel">Cancel</button>
-                </div>
+    </div>
+</div> <div id="specsModal" class="modal">
+    <div class="modal-content" style="max-width: 600px;">
+        <h2 id="specsModalTitle">Building Specifications</h2>
+        <input type="hidden" id="currentSpecAccountId" />
+        <div class="specs-container">
+            <div>
+                <h4 style="margin-bottom:0.5rem; color:#374151;">Current Documents</h4>
+                <div id="specsList" class="specs-list-area"><div class="empty-specs">No specifications added yet.</div></div>
+            </div>
+            <div class="specs-upload-box" style="border-style: solid; background: #f9fafb;">
+                <h4 style="margin-top:0; color:#0d9488;">Add Document Link</h4>
+                <p style="font-size:0.85rem; color:#666; margin-bottom:1rem;">To save storage costs, upload your PDF to Google Drive or Dropbox, then paste the share link here.</p>
+                <label for="newSpecName" class="vh">Document Name</label>
+                <input type="text" id="newSpecName" placeholder="Document Name (e.g. Floorplan)" style="background:white;" />
+                <label for="newSpecUrl" class="vh">Paste Link (https://...)</label>
+                <input type="url" id="newSpecUrl" placeholder="Paste Link (https://...)" style="width:100%; padding:10px; border:1px solid #ddd; border-radius:6px; margin-bottom:10px;" />
+                <button onclick="saveSpecLink()" style="width:100%; margin-top:0.5rem;">Save Document Link</button>
             </div>
         </div>
-
-        <div id="specsModal" class="modal">
-            <div class="modal-content" style="max-width: 600px;">
-                <h2 id="specsModalTitle">Building Specifications</h2>
-                <input type="hidden" id="currentSpecAccountId" />
-                <div class="specs-container">
-                    <div>
-                        <h4 style="margin-bottom:0.5rem; color:#374151;">Current Documents</h4>
-                        <div id="specsList" class="specs-list-area"><div class="empty-specs">No specifications added yet.</div></div>
-                    </div>
-                    <div class="specs-upload-box" style="border-style: solid; background: #f9fafb;">
-                        <h4 style="margin-top:0; color:#0d9488;">Add Document Link</h4>
-                        <p style="font-size:0.85rem; color:#666; margin-bottom:1rem;">To save storage costs, upload your PDF to Google Drive or Dropbox, then paste the share link here.</p>
-                        <label for="newSpecName" class="vh">Document Name</label>
-                        <input type="text" id="newSpecName" placeholder="Document Name (e.g. Floorplan)" style="background:white;" />
-                        <label for="newSpecUrl" class="vh">Paste Link (https://...)</label>
-                        <input type="url" id="newSpecUrl" placeholder="Paste Link (https://...)" style="width:100%; padding:10px; border:1px solid #ddd; border-radius:6px; margin-bottom:10px;" />
-                        <button onclick="saveSpecLink()" style="width:100%; margin-top:0.5rem;">Save Document Link</button>
-                    </div>
-                </div>
-                <div class="modal-buttons" style="margin-top: 1.5rem;">
-                    <button onclick="closeSpecsModal()" class="cancel">Close</button>
-                </div>
-            </div>
-        </div>
-
-        <div id="cancelAccountModal" class="modal">
-            <div class="modal-content" style="max-width: 450px;">
-                <h2>Cancel Account</h2>
-                <input type="hidden" id="cancelAccountId" />
-                <p style="color:#666; margin-bottom:20px;">Please provide details for cancellation. This will move the account to the Inactive list.</p>
-
-                <div class="input-wrapper" style="margin-bottom:15px;">
-                    <label style="font-weight:700;" for="cancelReason">Reason for Cancellation <span style="color:red">*</span></label>
-                    <select id="cancelReason" onchange="toggleOtherReason(this)">
-                        <option value="">-- Select Reason --</option>
-                        <option value="Performance">Performance Issue</option>
-                        <option value="InHouse">Taken In-House</option>
-                        <option value="Moved">Client Relocated/Moved</option>
-                        <option value="Transfer">Transfer to other Franchise</option>
-                        <option value="Price">Price / Budget</option>
-                        <option value="Other">Other</option>
-                    </select>
-                </div>
-
-                <div class="input-wrapper" id="otherReasonDiv" style="display:none; margin-bottom:15px;">
-                    <label>Specify Other Reason</label>
-                    <input type="text" id="cancelReasonOther" placeholder="Details..." />
-                </div>
-
-                <div class="input-wrapper" style="margin-bottom:20px;">
-                    <label style="font-weight:700;" for="cancelEndDate">End Date <span style="color:red">*</span></label>
-                    <input type="date" id="cancelEndDate" />
-                </div>
-
-                <div class="modal-buttons">
-                    <button onclick="confirmCancellation()" class="btn btn-danger">Confirm Cancellation</button>
-                    <button onclick="document.getElementById('cancelAccountModal').style.display='none'" class="cancel">Back</button>
-                </div>
-            </div>
-        </div>
-
-        <div id="inactiveReasonModal" class="modal">
-            <div class="modal-content" style="max-width: 450px;">
-                <h2 id="inactiveReasonTitle"></h2>
-                <input type="hidden" id="inactiveAccountId" />
-                <input type="hidden" id="actionType" />
-
-                <label style="font-weight: 700; display: block; margin-bottom: 10px;">Reason for Inactivation:</label>
-
-                <div id="reasonRadioButtons" class="radio-group" style="display:flex; flex-direction:column; gap:8px; margin-bottom:20px;">
-                    <label><input type="radio" name="inactiveReason" value="Performance" required> Client Performance Issue</label>
-                    <label><input type="radio" name="inactiveReason" value="InHouse"> Moved Cleaning In-House</label>
-                    <label><input type="radio" name="inactiveReason" value="Moved"> Client Relocated/Moved</label>
-                    <label><input type="radio" name="inactiveReason" value="Transfer"> Requested Transfer to Another Franchise</label>
-                    <label><input type="radio" name="inactiveReason" value="Other" onclick="document.getElementById('otherReasonInput').style.display = 'block'"> Other (Specify)</label>
-                </div>
-
-                <input type="text" id="otherReasonInput" placeholder="Specify other reason" style="display: none; margin-bottom: 20px;" />
-
-                <div class="modal-buttons">
-                    <button onclick="confirmInactiveAction()" class="btn btn-primary" id="btnConfirmInactive">Confirm Inactivation</button>
-                    <button onclick="closeInactiveReasonModal()" class="cancel">Cancel</button>
-                </div>
-            </div>
-        </div>
-
-        <div id="toast"></div>
-
-        <div id="installBanner" style="display: none; position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); background: white; padding: 15px 25px; border-radius: 12px; box-shadow: 0 10px 25px rgba(0,0,0,0.2); z-index: 10000; align-items: center; gap: 15px; border-left: 5px solid #0d9488;">
-            <div style="font-weight: 600; color: #1f2937;">Install CleanDash for a better experience</div>
-            <div style="display: flex; gap: 10px;">
-                <button id="btnInstall" class="btn btn-primary" style="padding: 8px 15px; font-size: 0.85rem;">Install</button>
-                <button onclick="document.getElementById('installBanner').style.display='none'" class="btn btn-secondary" style="padding: 8px 15px; font-size: 0.85rem;">Later</button>
-            </div>
-        </div>
-
-        <div id="editProfileModal" class="modal-overlay" style="display:none; z-index: 10005;">
-            <div class="modal-content" style="max-width: 500px;">
-                <h2 style="color: #0d9488;">Edit Profile</h2>
-
-                <div class="input-wrapper" style="margin-bottom:15px;">
-                    <label style="font-weight:700; font-size:0.85rem;">Full Name</label>
-                    <input type="text" id="editName" placeholder="Your Name" />
-                </div>
-
-                <div class="input-wrapper" style="margin-bottom:15px;">
-                    <label style="font-weight:700; font-size:0.85rem;">Business Address</label>
-                    <input type="text" id="editAddress" placeholder="123 Main St, City, State" />
-                </div>
-
-                <div style="display:grid; grid-template-columns: 1fr 1fr; gap:10px; margin-bottom:5px;">
-                    <div class="input-wrapper">
-                        <label style="font-weight:700; font-size:0.85rem;">Phone (10 Digits)</label>
-                        <input type="text" id="editPhoneNumber" placeholder="2155550199" />
-                    </div>
-                    <div class="input-wrapper">
-                        <label style="font-weight:700; font-size:0.85rem;">Carrier (For Alerts)</label>
-                        <select id="editCarrier">
-                            <option value="">Select Carrier...</option>
-                            <option value="vtext.com">Verizon</option>
-                            <option value="txt.att.net">AT&T</option>
-                            <option value="tmomail.net">T-Mobile</option>
-                            <option value="messaging.sprintpcs.com">Sprint</option>
-                            <option value="mms.cricketwireless.net">Cricket</option>
-                            <option value="vmobl.com">Virgin Mobile</option>
-                            <option value="msg.fi.google.com">Google Fi</option>
-                        </select>
-                    </div>
-                </div>
-                <div id="smsPreview" style="font-size:0.75rem; color:#0d9488; margin-bottom:15px; text-align:right; font-weight:bold; height:1rem;"></div>
-
-                <div style="display:grid; grid-template-columns: 1fr 1fr; gap:15px; margin-bottom:15px; padding-top:10px; border-top:1px dashed #eee;">
-                    <div class="input-wrapper">
-                        <label style="font-weight:700; font-size:0.85rem;">CFee Amount ($)</label>
-                        <input type="number" id="editCfi" step="0.01" placeholder="0.00" />
-                    </div>
-                    <div class="input-wrapper">
-                        <label style="font-weight:700; font-size:0.85rem;">CODB (%)</label>
-                        <input type="number" id="editCodb" step="1" placeholder="25" />
-                    </div>
-                </div>
-
-                <div class="input-wrapper" style="margin-bottom:20px;">
-                    <label style="font-weight:700; font-size:0.85rem;">Alert Threshold (Hours)</label>
-                    <input type="number" id="editAlertThreshold" placeholder="15" />
-                </div>
-
-                <div class="modal-buttons">
-                    <button id="btnSaveProfile" onclick="saveProfile()" class="btn btn-primary">Save Changes</button>
-                    <button onclick="document.getElementById('editProfileModal').style.display='none'" class="cancel">Cancel</button>
-                </div>
-            </div>
+        <div class="modal-buttons" style="margin-top: 1.5rem;">
+            <button onclick="closeSpecsModal()" class="cancel">Close</button>
         </div>
     </div>
-    <script>
-        if ('serviceWorker' in navigator) {
-          window.addEventListener('load', () => {
-            navigator.serviceWorker.register('sw.js')
-              .then((reg) => console.log('Service Worker Registered!', reg.scope))
-              .catch((err) => console.log('Service Worker Failed:', err));
-          });
-        }
-    </script>
+</div>
 
-    <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
+<div id="cancelAccountModal" class="modal">
+    <div class="modal-content" style="max-width: 450px;">
+        <h2>Cancel Account</h2>
+        <input type="hidden" id="cancelAccountId" />
+        <p style="color:#666; margin-bottom:20px;">Please provide details for cancellation. This will move the account to the Inactive list.</p>
 
-    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-    <script src="https://unpkg.com/leaflet-control-geocoder/dist/Control.Geocoder.js"></script>
+        <div class="input-wrapper" style="margin-bottom:15px;">
+            <label style="font-weight:700;" for="cancelReason">Reason for Cancellation <span style="color:red">*</span></label>
+            <select id="cancelReason" onchange="toggleOtherReason(this)">
+                <option value="">-- Select Reason --</option>
+                <option value="Performance">Performance Issue</option>
+                <option value="InHouse">Taken In-House</option>
+                <option value="Moved">Client Relocated/Moved</option>
+                <option value="Transfer">Transfer to other Franchise</option>
+                <option value="Price">Price / Budget</option>
+                <option value="Other">Other</option>
+            </select>
+        </div>
 
-    <script src="js/utils.js"></script>
-    <script src="js/auth.js"></script>
-    <script src="js/map.js"></script>
-    <script src="js/accounts.js"></script>
-    <script src="js/pnl.js"></script>
-    <script src="js/calculator.js"></script>
-    <script src="js/profile.js"></script>
-    <script src="js/ad_generator.js"></script>
-    <script src="js/metrics.js"></script>
-    <script src="js/employees.js"></script>
-    <script src="js/scheduler.js"></script>
-    <script src="js/payroll.js"></script>
+        <div class="input-wrapper" id="otherReasonDiv" style="display:none; margin-bottom:15px;">
+            <label>Specify Other Reason</label>
+            <input type="text" id="cancelReasonOther" placeholder="Details..." />
+        </div>
 
-    <script src="js/main.js"></script>
+        <div class="input-wrapper" style="margin-bottom:20px;">
+            <label style="font-weight:700;" for="cancelEndDate">End Date <span style="color:red">*</span></label>
+            <input type="date" id="cancelEndDate" />
+        </div>
 
-</div> <script src="js/employees.js"></script>
+        <div class="modal-buttons">
+            <button onclick="confirmCancellation()" class="btn btn-danger">Confirm Cancellation</button>
+            <button onclick="document.getElementById('cancelAccountModal').style.display='none'" class="cancel">Back</button>
+        </div>
+    </div>
+</div>
+
+<div id="inactiveReasonModal" class="modal">
+    <div class="modal-content" style="max-width: 450px;">
+        <h2 id="inactiveReasonTitle"></h2>
+        <input type="hidden" id="inactiveAccountId" />
+        <input type="hidden" id="actionType" />
+
+        <label style="font-weight: 700; display: block; margin-bottom: 10px;">Reason for Inactivation:</label>
+
+        <div id="reasonRadioButtons" class="radio-group" style="display:flex; flex-direction:column; gap:8px; margin-bottom:20px;">
+            <label><input type="radio" name="inactiveReason" value="Performance" required> Client Performance Issue</label>
+            <label><input type="radio" name="inactiveReason" value="InHouse"> Moved Cleaning In-House</label>
+            <label><input type="radio" name="inactiveReason" value="Moved"> Client Relocated/Moved</label>
+            <label><input type="radio" name="inactiveReason" value="Transfer"> Requested Transfer to Another Franchise</label>
+            <label><input type="radio" name="inactiveReason" value="Other" onclick="document.getElementById('otherReasonInput').style.display = 'block'"> Other (Specify)</label>
+        </div>
+
+        <input type="text" id="otherReasonInput" placeholder="Specify other reason" style="display: none; margin-bottom: 20px;" />
+
+        <div class="modal-buttons">
+            <button onclick="confirmInactiveAction()" class="btn btn-primary" id="btnConfirmInactive">Confirm Inactivation</button>
+            <button onclick="closeInactiveReasonModal()" class="cancel">Cancel</button>
+        </div>
+    </div>
+</div>
+
+<div id="toast"></div>
+
+<div id="installBanner" style="display: none; position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); background: white; padding: 15px 25px; border-radius: 12px; box-shadow: 0 10px 25px rgba(0,0,0,0.2); z-index: 10000; align-items: center; gap: 15px; border-left: 5px solid #0d9488;">
+    <div style="font-weight: 600; color: #1f2937;">Install CleanDash for a better experience</div>
+    <div style="display: flex; gap: 10px;">
+        <button id="btnInstall" class="btn btn-primary" style="padding: 8px 15px; font-size: 0.85rem;">Install</button>
+        <button onclick="document.getElementById('installBanner').style.display='none'" class="btn btn-secondary" style="padding: 8px 15px; font-size: 0.85rem;">Later</button>
+    </div>
+</div>
+
+<div id="editProfileModal" class="modal-overlay" style="display:none; z-index: 10005;">
+    <div class="modal-content" style="max-width: 500px;">
+        <h2 style="color: #0d9488;">Edit Profile</h2>
+
+        <div class="input-wrapper" style="margin-bottom:15px;">
+            <label style="font-weight:700; font-size:0.85rem;">Full Name</label>
+            <input type="text" id="editName" placeholder="Your Name" />
+        </div>
+
+        <div class="input-wrapper" style="margin-bottom:15px;">
+            <label style="font-weight:700; font-size:0.85rem;">Business Address</label>
+            <input type="text" id="editAddress" placeholder="123 Main St, City, State" />
+        </div>
+
+        <div style="display:grid; grid-template-columns: 1fr 1fr; gap:10px; margin-bottom:5px;">
+            <div class="input-wrapper">
+                <label style="font-weight:700; font-size:0.85rem;">Phone (10 Digits)</label>
+                <input type="text" id="editPhoneNumber" placeholder="2155550199" />
+            </div>
+            <div class="input-wrapper">
+                <label style="font-weight:700; font-size:0.85rem;">Carrier (For Alerts)</label>
+                <select id="editCarrier">
+                    <option value="">Select Carrier...</option>
+                    <option value="vtext.com">Verizon</option>
+                    <option value="txt.att.net">AT&T</option>
+                    <option value="tmomail.net">T-Mobile</option>
+                    <option value="messaging.sprintpcs.com">Sprint</option>
+                    <option value="mms.cricketwireless.net">Cricket</option>
+                    <option value="vmobl.com">Virgin Mobile</option>
+                    <option value="msg.fi.google.com">Google Fi</option>
+                </select>
+            </div>
+        </div>
+        <div id="smsPreview" style="font-size:0.75rem; color:#0d9488; margin-bottom:15px; text-align:right; font-weight:bold; height:1rem;"></div>
+
+        <div style="display:grid; grid-template-columns: 1fr 1fr; gap:15px; margin-bottom:15px; padding-top:10px; border-top:1px dashed #eee;">
+            <div class="input-wrapper">
+                <label style="font-weight:700; font-size:0.85rem;">CFee Amount ($)</label>
+                <input type="number" id="editCfi" step="0.01" placeholder="0.00" />
+            </div>
+            <div class="input-wrapper">
+                <label style="font-weight:700; font-size:0.85rem;">CODB (%)</label>
+                <input type="number" id="editCodb" step="1" placeholder="25" />
+            </div>
+        </div>
+
+        <div class="input-wrapper" style="margin-bottom:20px;">
+            <label style="font-weight:700; font-size:0.85rem;">Alert Threshold (Hours)</label>
+            <input type="number" id="editAlertThreshold" placeholder="15" />
+        </div>
+
+        <div class="modal-buttons">
+            <button id="btnSaveProfile" onclick="saveProfile()" class="btn btn-primary">Save Changes</button>
+            <button onclick="document.getElementById('editProfileModal').style.display='none'" class="cancel">Cancel</button>
+        </div>
+    </div>
+</div>
+
+<script>
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('sw.js')
+          .then((reg) => console.log('Service Worker Registered!', reg.scope))
+          .catch((err) => console.log('Service Worker Failed:', err));
+      });
+    }
+</script>
+
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://unpkg.com/leaflet-control-geocoder/dist/Control.Geocoder.js"></script>
+
+<script src="js/utils.js"></script>
+<script src="js/auth.js"></script>
+<script src="js/map.js"></script>
+<script src="js/accounts.js"></script>
+<script src="js/pnl.js"></script>
+<script src="js/calculator.js"></script>
+<script src="js/profile.js"></script>
+<script src="js/ad_generator.js"></script>
+<script src="js/metrics.js"></script>
+<script src="js/employees.js"></script>
 <script src="js/scheduler.js"></script>
-...
+<script src="js/payroll.js"></script>
+
+<script src="js/main.js"></script>
 </body>
 </html>

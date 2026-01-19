@@ -238,21 +238,24 @@ window.renderMasterTable = function(data) {
 window.filterMasterAccounts = function() {
     const term = document.getElementById('masterSearch').value.toLowerCase();
 
-    // 1. Get Toggle State
-    // If checked, we show ONLY Inactive/Cancelled. If unchecked, we show ONLY Active.
+    // Get Toggle States
     const showInactiveOnly = document.getElementById('toggleInactive').checked;
+    const showOrphansOnly = document.getElementById('toggleOrphans') ? document.getElementById('toggleOrphans').checked : false;
 
     const filtered = allMasterAccounts.filter(acc => {
-        // Search Filter
+        // 1. Search Filter
         const matchesSearch = (acc.pid && String(acc.pid).toLowerCase().includes(term)) ||
                (acc.name && acc.name.toLowerCase().includes(term)) ||
                (acc.address && acc.address.toLowerCase().includes(term)) ||
                (acc.franId && acc.franId.toLowerCase().includes(term));
 
-        // Status Filter
-        // If toggle is ON, show anything NOT 'Active'. If OFF, show ONLY 'Active'.
+        // 2. Status Filter (Active vs Inactive)
         const isActive = acc.status === 'Active';
         const matchesStatus = showInactiveOnly ? !isActive : isActive;
+
+        // 3. Orphan Filter (New)
+        // If "Orphans Only" is checked, HIDE anything that is NOT an orphan
+        if (showOrphansOnly && !acc.isOrphan) return false;
 
         return matchesSearch && matchesStatus;
     });
@@ -764,7 +767,7 @@ window.deleteAdmin = async function(uid, name) {
     }
 };
 
-// --- ADDED THIS FUNCTION TO FIX MASTER CLIENT LIST LOADING ---
+// --- ADDED THIS FUNCTION TO FIX MASTER CLIENT LIST LOADING (UPDATED WITH ORPHAN LOGIC) ---
 window.loadMasterAccounts = async function() {
     const tbody = document.getElementById('masterAccountList');
     if (!tbody) return;
@@ -772,32 +775,64 @@ window.loadMasterAccounts = async function() {
     // 1. Show Loading State
     tbody.innerHTML = '<tr><td colspan="7" style="text-align:center; padding:20px;">Refreshing Database...</td></tr>';
 
-    try {
-        // 2. Fetch from Firestore
-        const snap = await db.collection('master_client_list').orderBy('pid').get();
+    const activeEl = document.getElementById('statMasterActive');
+    const orphanEl = document.getElementById('statMasterOrphan');
+    if (activeEl) activeEl.textContent = "Active: ...";
+    if (orphanEl) orphanEl.textContent = "Orphans: ...";
 
-        // 3. Cache Data
-        allMasterAccounts = [];
-        snap.forEach(doc => {
-            allMasterAccounts.push({ id: doc.id, ...doc.data() });
+    try {
+        // 2. Fetch Master List AND Users
+        const [masterSnap, usersSnap] = await Promise.all([
+            db.collection('master_client_list').orderBy('pid').get(),
+            db.collection('users').where('role', '==', 'owner').get()
+        ]);
+
+        // 3. Build Owner Whitelist (Valid FranIDs)
+        const validFranIds = new Set();
+        usersSnap.forEach(doc => {
+            const d = doc.data();
+            if (d.franId) validFranIds.add(d.franId.toUpperCase().trim());
         });
 
-        console.log(`Loaded ${allMasterAccounts.length} master accounts.`);
+        // 4. Cache Data & Tag Orphans
+        allMasterAccounts = [];
+        let activeCount = 0;
+        let orphanCount = 0;
 
-        // 4. Render Table WITH FILTER APPLIED (Fixes the "show all on load" bug)
+        masterSnap.forEach(doc => {
+            const acc = { id: doc.id, ...doc.data() };
+
+            // --- TAGGING LOGIC ---
+            const franId = (acc.franId || '').toUpperCase().trim();
+            // An account is an orphan if it HAS NO FranID, OR the FranID doesn't match an owner
+            acc.isOrphan = (!franId || !validFranIds.has(franId));
+
+            allMasterAccounts.push(acc);
+
+            // Update Counters
+            if (acc.status === 'Active') {
+                activeCount++;
+                if (acc.isOrphan) orphanCount++;
+            }
+        });
+
+        // 5. Update UI Counters (Neutral Styling Only)
+        if (activeEl) activeEl.textContent = `Active: ${activeCount}`;
+        if (orphanEl) {
+            orphanEl.textContent = `Orphans: ${orphanCount}`;
+            // Removed the "if (orphanCount > 0) turn red" logic
+            orphanEl.style.backgroundColor = '#f3f4f6';
+            orphanEl.style.color = '#6b7280';
+            orphanEl.style.borderColor = '#d1d5db';
+        }
+
+        console.log(`Loaded ${allMasterAccounts.length} master accounts.`);
         filterMasterAccounts();
 
     } catch (e) {
         console.error("Error loading master accounts:", e);
-        if (e.message.includes("requires an index")) {
-             console.warn("Index missing. Loading unsorted.");
-             const snap = await db.collection('master_client_list').get();
-             allMasterAccounts = [];
-             snap.forEach(doc => { allMasterAccounts.push({ id: doc.id, ...doc.data() }); });
-             filterMasterAccounts(); // Apply filter here too
-        } else {
-             tbody.innerHTML = `<tr><td colspan="7" style="color:red; text-align:center;">Error: ${e.message}</td></tr>`;
-        }
+        // Basic error fallback
+        tbody.innerHTML = `<tr><td colspan="7" style="color:red; text-align:center;">Error: ${e.message}</td></tr>`;
     }
 };
 
@@ -1093,8 +1128,11 @@ let layers = {
     employees: null
 };
 
-// 1. HELPER: Smart Geocode for Owners
+// --- UPDATED ADMIN DASHBOARD LOGIC (SHOWS ALL MASTER ACCOUNTS) ---
+
+// 1. HELPER: Smart Geocode (Kept the same)
 async function smartGeocodeOwner(address) {
+    // ... (No changes needed here, keep your existing helper) ...
     try {
         const key = window.LOCATIONIQ_KEY || "pk.c92dcfda3c6ea1c6da25f0c36c34c99e";
         const url = `https://us1.locationiq.com/v1/search.php?key=${key}&q=${encodeURIComponent(address)}&format=json&limit=1&countrycodes=us`;
@@ -1107,7 +1145,7 @@ async function smartGeocodeOwner(address) {
     return null;
 }
 
-// 2. TOGGLE & FILTER FUNCTION (HYBRID ID + EMAIL MATCH)
+// 2. TOGGLE & FILTER FUNCTION (UPDATED POPUP)
 window.updateMapLayers = function() {
     if (!adminMap) return;
 
@@ -1127,6 +1165,7 @@ window.updateMapLayers = function() {
     // C. Define Icons
     const RedIcon = new L.Icon({ iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-red.png', shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/0.7.7/images/marker-shadow.png', iconSize: [25, 41], iconAnchor: [12, 41], popupAnchor: [1, -34], shadowSize: [41, 41] });
     const BlueIcon = new L.Icon({ iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-blue.png', shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/0.7.7/images/marker-shadow.png', iconSize: [25, 41], iconAnchor: [12, 41], popupAnchor: [1, -34], shadowSize: [41, 41] });
+    const GreyIcon = new L.Icon({ iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-grey.png', shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/0.7.7/images/marker-shadow.png', iconSize: [25, 41], iconAnchor: [12, 41], popupAnchor: [1, -34], shadowSize: [41, 41] }); // Added Grey for orphans
     const GreenIcon = new L.Icon({ iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-green.png', shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/0.7.7/images/marker-shadow.png', iconSize: [25, 41], iconAnchor: [12, 41], popupAnchor: [1, -34], shadowSize: [41, 41] });
 
     // D. Filter & Re-Draw Owners
@@ -1142,56 +1181,56 @@ window.updateMapLayers = function() {
         }
     });
 
-    // E. Filter & Re-Draw Accounts
+    // E. Filter & Re-Draw Accounts (UPDATED FOR ORPHANS)
     mapData.accounts.forEach(d => {
         let match = true;
+
+        // Filter Logic
         if (selectedOwnerId !== 'all' && ownerObj) {
             const aId = String(d.franId || '').toLowerCase();
             const oId = String(ownerObj.franId || '').toLowerCase();
-            if (aId !== oId) match = false;
+            // If the account has no ID, or IDs don't match, hide it
+            if (!aId || aId !== oId) match = false;
         }
 
         if (match && d.lat && d.lng) {
-            L.marker([d.lat, d.lng], { icon: BlueIcon })
-                .bindPopup(`<b>🏢 ACCOUNT: ${d.name}</b><br>${d.address}`)
+            // Determine Owner Label
+            let ownerLabel = `<span style="color:#ef4444; font-weight:bold;">Owner: No user assigned</span>`;
+            let iconToUse = GreyIcon; // Default to orphan (Grey)
+
+            if (d.resolvedOwnerName) {
+                ownerLabel = `<span style="color:#0d9488; font-weight:bold;">Owner: ${d.resolvedOwnerName}</span>`;
+                iconToUse = BlueIcon; // Assigned (Blue)
+            }
+
+            L.marker([d.lat, d.lng], { icon: iconToUse })
+                .bindPopup(`
+                    <div style="font-size:1.1rem; font-weight:bold; color:#1f2937;">${d.name}</div>
+                    <div style="font-size:0.9rem; margin-bottom:5px;">${d.address}</div>
+                    <hr style="border:0; border-top:1px solid #eee; margin:5px 0;">
+                    <div style="font-size:0.85rem;">${ownerLabel}</div>
+                    <div style="font-size:0.8rem; color:#6b7280; margin-top:2px;">PID: ${d.pid} | FranID: ${d.franId || 'N/A'}</div>
+                `)
                 .addTo(layers.accounts);
         }
     });
 
-    // F. Filter & Re-Draw Employees (HYBRID MATCHING)
+    // F. Filter & Re-Draw Employees
     mapData.employees.forEach(d => {
         let match = true;
-
         if (selectedOwnerId !== 'all' && ownerObj) {
-            match = false; // Default hidden
-
-            // 1. PREPARE THE TARGETS (The Owner's Identifiers)
-            // We convert everything to lowercase strings to ensure "DIAZ" matches "Diaz"
-            const targetFranId = String(ownerObj.franId || '').toLowerCase().trim(); // e.g. "diaz"
-            const targetEmail = String(ownerObj.email || '').toLowerCase().trim();   // e.g. "david@..."
-            const targetName = String(ownerObj.name || '').toLowerCase().trim();     // e.g. "david & andrea"
-
-            // 2. PREPARE THE EMPLOYEE LINK
-            // The employee might list the owner by ID, Email, OR Name. We check the 'owner' field.
+            match = false;
+            const targetFranId = String(ownerObj.franId || '').toLowerCase().trim();
+            const targetEmail = String(ownerObj.email || '').toLowerCase().trim();
+            const targetName = String(ownerObj.name || '').toLowerCase().trim();
             const empLink = String(d.owner || d.ownerEmail || '').toLowerCase().trim();
 
-            // 3. THE MATCH LOGIC
-
-            // A. Check FRANCHISE ID (Primary Request)
             if (targetFranId && empLink === targetFranId) match = true;
-
-            // B. Check EMAIL (For Rondell)
             if (targetEmail && empLink === targetEmail) match = true;
-
-            // C. Check NAME (Fallback)
             if (targetName && empLink === targetName) match = true;
-
-            // D. "Contains" Check (Handles "User: Diaz" or "ID: GOULD")
-            // Only runs if the ID is at least 3 chars long to avoid bad matches
             if (targetFranId.length > 2 && empLink.includes(targetFranId)) match = true;
         }
 
-        // Draw ONLY if Matched
         if (match && d.lat && d.lng) {
             L.marker([d.lat, d.lng], { icon: GreenIcon })
                 .bindPopup(`<b>👷 EMPLOYEE: ${d.name}</b><br>Linked to: ${d.owner}`)
@@ -1205,11 +1244,10 @@ window.updateMapLayers = function() {
     if (showEmp) adminMap.addLayer(layers.employees); else adminMap.removeLayer(layers.employees);
 };
 
-// 3. MAIN LOAD FUNCTION (NOW AUTO-GEOCODES EMPLOYEES!)
+// 3. MAIN LOAD FUNCTION (SWITCHED TO MASTER LIST)
 window.loadAdminDashboard = async function() {
-    console.log("Loading Admin Dashboard...");
+    console.log("Loading Admin Dashboard (Global View)...");
 
-    // UI Stats Elements
     const statAcc = document.getElementById('mapStatAccounts');
     const statOwn = document.getElementById('mapStatOwners');
     const statEmp = document.getElementById('mapStatEmployees');
@@ -1217,45 +1255,48 @@ window.loadAdminDashboard = async function() {
 
     if(statAcc) statAcc.innerText = '...';
 
-    // Initialize Map if needed
+    // Initialize Map
     if (!adminMap) {
         adminMap = L.map('adminMap').setView([39.9526, -75.1652], 10);
-        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-            maxZoom: 19,
-            attribution: '© OpenStreetMap'
-        }).addTo(adminMap);
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '© OpenStreetMap' }).addTo(adminMap);
     }
 
-    // Initialize Layer Groups
     if (!layers.owners) layers.owners = L.layerGroup();
     if (!layers.accounts) layers.accounts = L.layerGroup();
     if (!layers.employees) layers.employees = L.layerGroup();
 
     try {
-        const [usersSnap, accountsSnap, employeesSnap] = await Promise.all([
+        // --- DATA FETCH: Using Master List instead of Accounts Collection ---
+        const [usersSnap, masterSnap, employeesSnap] = await Promise.all([
             db.collection('users').where('role', '==', 'owner').get(),
-            db.collection('accounts').where('status', '==', 'Active').get(),
+            db.collection('master_client_list').where('status', '==', 'Active').get(), // <--- CRITICAL CHANGE
             db.collection('employees').where('status', '==', 'Active').get()
         ]);
 
-        if(statAcc) statAcc.innerText = accountsSnap.size;
+        if(statAcc) statAcc.innerText = masterSnap.size; // Now shows 584
         if(statOwn) statOwn.innerText = usersSnap.size;
         if(statEmp) statEmp.innerText = employeesSnap.size;
 
-        // --- STORE DATA GLOBALLY FOR FILTERING ---
+        // Reset Data
         mapData.owners = [];
         mapData.accounts = [];
         mapData.employees = [];
 
-        // 1. PROCESS OWNERS (Populate Dropdown & Fix Pins)
+        // 1. PROCESS OWNERS & Build Lookup Map
         if (filterSelect) filterSelect.innerHTML = '<option value="all">-- Show All Owners --</option>';
+
+        const ownerLookup = {}; // Map: FranID -> Name
 
         const ownerPromises = usersSnap.docs.map(async doc => {
             const d = doc.data();
             d.id = doc.id;
             mapData.owners.push(d);
 
-            // Add to Dropdown
+            // Populate Lookup
+            if (d.franId) {
+                ownerLookup[d.franId.toUpperCase()] = d.name;
+            }
+
             if (filterSelect) {
                 const opt = document.createElement('option');
                 opt.value = doc.id;
@@ -1263,7 +1304,7 @@ window.loadAdminDashboard = async function() {
                 filterSelect.appendChild(opt);
             }
 
-            // Self-Heal Owner Pins
+            // Self-Heal Pins
             if ((!d.lat || !d.lng) && (d.address || d.street)) {
                 const queryAddr = d.address || `${d.street || ''} ${d.city || ''} ${d.state || ''} ${d.zip || ''}`;
                 if (queryAddr.trim().length > 5) {
@@ -1277,27 +1318,28 @@ window.loadAdminDashboard = async function() {
         });
         await Promise.all(ownerPromises);
 
-        // 2. PROCESS ACCOUNTS
-        accountsSnap.forEach(doc => {
+        // 2. PROCESS ACCOUNTS (Master List)
+        masterSnap.forEach(doc => {
             const d = doc.data();
             d.id = doc.id;
+
+            // Resolve Owner Name
+            d.resolvedOwnerName = null;
+            if (d.franId && ownerLookup[d.franId.toUpperCase()]) {
+                d.resolvedOwnerName = ownerLookup[d.franId.toUpperCase()];
+            }
+
             mapData.accounts.push(d);
         });
 
-        // 3. PROCESS EMPLOYEES (NEW: AUTO-GEOCODE FIX)
+        // 3. PROCESS EMPLOYEES
         const empPromises = employeesSnap.docs.map(async doc => {
             const d = doc.data();
             d.id = doc.id;
-
-            // CHECK: Does Employee have address but NO Coords?
-            // If so, we fix it right now.
             if ((!d.lat || !d.lng) && d.address) {
-                console.log(`Fixing map pin for employee: ${d.name}...`);
                 const coords = await smartGeocodeOwner(d.address);
                 if (coords) {
-                    d.lat = coords.lat;
-                    d.lng = coords.lng;
-                    // Save to DB so it loads instantly next time
+                    d.lat = coords.lat; d.lng = coords.lng;
                     await db.collection('employees').doc(doc.id).update({ lat: coords.lat, lng: coords.lng });
                 }
             }
@@ -1322,7 +1364,6 @@ window.loadAdminDashboard = async function() {
         console.error("Admin Dashboard Error:", e);
     }
 };
-
 // --- UTILITY: Check Master Record Count ---
 window.checkRecordCount = async function() {
     const btn = document.querySelector('button[onclick="checkRecordCount()"]');
