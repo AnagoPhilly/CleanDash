@@ -572,6 +572,7 @@ window.openGroupDetails = function(dateStr, accountId, timeStr) {
     const allJobs = window.schedulerJobsCache || [];
     const targetDate = new Date(dateStr + 'T00:00:00');
 
+    // Filter for specific block
     const groupJobs = allJobs.filter(j => {
         return isSameDay(j.start, targetDate) &&
                j.accountId === accountId &&
@@ -584,11 +585,10 @@ window.openGroupDetails = function(dateStr, accountId, timeStr) {
     const accName = firstJob.accountName;
     const niceDate = targetDate.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
 
-    // 1. EXTRACT DATA FOR PRE-FILL
+    // Setup for "Manage Roster" button
     const preAccId = firstJob.accountId;
     const preStartTime = get24hTime(firstJob.start);
     const preEndTime = get24hTime(firstJob.end);
-    // 2. GET CURRENT EMPLOYEE IDs
     const existingEmpIds = groupJobs.map(j => j.employeeId).join(',');
 
     let content = `
@@ -602,24 +602,36 @@ window.openGroupDetails = function(dateStr, accountId, timeStr) {
     `;
 
     groupJobs.forEach(job => {
-        let statusColor = '#3b82f6';
-        if (job.status === 'Completed') statusColor = '#10b981';
-        else if (job.status === 'Started') statusColor = '#888888ff';
+        let statusColor = '#3b82f6'; // Blue (Scheduled)
+        if (job.status === 'Completed') statusColor = '#10b981'; // Green
+        else if (job.status === 'Started') statusColor = '#f59e0b'; // Orange
 
         content += `
         <div style="display:flex; justify-content:space-between; align-items:center; padding:10px; background:white; border:1px solid #e2e8f0; border-radius:6px; margin-bottom:8px; box-shadow:0 1px 2px rgba(0,0,0,0.05);">
             <div style="display:flex; align-items:center; gap:10px;">
-                <div style="width:8px; height:8px; border-radius:50%; background:${statusColor};"></div>
+                <div style="width:10px; height:10px; border-radius:50%; background:${statusColor};" title="${job.status}"></div>
                 <div>
                     <div style="font-weight:600; color:#334155;">${job.employeeName}</div>
                     <div style="font-size:0.75rem; color:#94a3b8;">${job.status}</div>
                 </div>
             </div>
-            <button onclick="window.editJob({id:'${job.id}', accountId:'${job.accountId}', employeeId:'${job.employeeId}'}); document.getElementById('groupDetailPopup').remove();" class="btn-xs" style="background:white; border:1px solid #cbd5e1; color:#475569; padding:4px 8px;">Edit</button>
+
+            <div style="display:flex; gap:8px;">
+                <button onclick="window.quickOverride('${job.id}')"
+                        class="btn-xs"
+                        style="background:#dcfce7; border:1px solid #86efac; color:#166534; padding:5px 10px; font-weight:600; cursor:pointer; border-radius:4px;">
+                    Override
+                </button>
+
+                <button onclick="window.editJob({id:'${job.id}', accountId:'${job.accountId}', employeeId:'${job.employeeId}'}); document.getElementById('groupDetailPopup').remove();"
+                        class="btn-xs"
+                        style="background:white; border:1px solid #cbd5e1; color:#475569; padding:5px 10px; cursor:pointer; border-radius:4px;">
+                    Edit Shift
+                </button>
+            </div>
         </div>`;
     });
 
-    // 3. UPDATED BUTTON: PASSES IDs
     content += `
     </div>
     <div style="padding:10px; background:#f8fafc; border-top:1px solid #e2e8f0; border-radius:0 0 8px 8px; text-align:center;">
@@ -867,6 +879,35 @@ function generateTimeColumn() {
     html += '</div>';
     return html;
 }
+
+// --- 10. QUICK ACTION: OVERRIDE SHIFT ---
+window.quickOverride = async function(jobId) {
+    if(!confirm("Mark this shift as COMPLETED now?")) return;
+
+    try {
+        const docRef = db.collection('jobs').doc(jobId);
+        const doc = await docRef.get();
+        const data = doc.data();
+
+        const updateData = { status: 'Completed' };
+
+        // Auto-fill actual times with scheduled times if they are missing
+        if(!data.actualStartTime) updateData.actualStartTime = data.startTime;
+        if(!data.actualEndTime) updateData.actualEndTime = data.endTime;
+
+        await docRef.update(updateData);
+
+        window.showToast("Shift Overridden: Completed ✅");
+
+        // Close popup and reload
+        const popup = document.getElementById('groupDetailPopup');
+        if(popup) popup.remove();
+        loadScheduler();
+
+    } catch(e) {
+        alert("Error: " + e.message);
+    }
+};
 
 function setupInteractions() {
     const grid = document.getElementById('schedulerGrid');
@@ -1618,6 +1659,7 @@ window.checkRollingSchedules = async function() {
 // 4. CONTROL CENTER UPDATE (Sync Multi)
 window.updateScheduleSettings = async function() {
     const accId = document.getElementById('scheduleAccountId').value;
+    const accName = document.getElementById('schedModalTitle').textContent.replace('Schedule: ', '');
     const startTime = document.getElementById('sc_startTime').value;
     const endTime = document.getElementById('sc_endTime').value;
 
@@ -1674,7 +1716,7 @@ window.updateScheduleSettings = async function() {
                 emps.forEach(emp => {
                     const ref = db.collection('jobs').doc();
                     batch.set(ref, {
-                        accountId: accId, accountName: "Synced Account",
+                        accountName: accName,
                         employeeId: emp.id, employeeName: emp.name,
                         startTime: firebase.firestore.Timestamp.fromDate(sDate),
                         endTime: firebase.firestore.Timestamp.fromDate(eDate),
