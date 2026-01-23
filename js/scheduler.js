@@ -1,23 +1,24 @@
 // js/scheduler.js
 
 // --- 1. CONFIGURATION ---
-const START_HOUR = 12; // Start at 12 PM (Noon)
-const HOURS_TO_RENDER = 30;
+const START_HOUR = 6; // Start at 6 AM
+const HOURS_TO_RENDER = 24; // Show 18 hours (6 AM to Midnight)
 const PIXELS_PER_HOUR = 60;
 const SNAP_MINUTES = 15;
 const PIXELS_PER_MINUTE = PIXELS_PER_HOUR / 60;
 const SNAP_PIXELS = SNAP_MINUTES * PIXELS_PER_MINUTE;
 
 // --- 2. STATE ---
-let currentView = 'month';
-let currentDate = new Date();
+window.currentView = 'day';
+window.currentDate = new Date();
+window.schedulerData = [];
 let alertedJobs = new Set();
 const alertSound = new Audio('https://assets.mixkit.co/sfx/preview/mixkit-software-interface-start-2574.mp3');
 
 // Globals
 let schedulerSettings = {};
 let currentEmpFilter = 'ALL';
-let currentAccountFilter = 'ALL'; // <--- NEW VARIABLE
+let currentAccountFilter = 'ALL';
 let showEmployeeColors = false;
 let employeeColors = {};
 
@@ -25,7 +26,7 @@ let employeeColors = {};
 document.addEventListener('click', function(e) {
     const navItem = e.target.closest('.nav-item[data-page="scheduler"]');
     if (navItem) {
-        loadScheduler();
+        window.loadScheduler();
     }
 });
 
@@ -49,12 +50,14 @@ function getLocalYMD(d) {
     return `${year}-${month}-${day}`;
 }
 
-currentDate = normalizeDate(currentDate, currentView);
+window.currentDate = normalizeDate(window.currentDate, window.currentView);
 
-// --- 4. MAIN LOAD FUNCTION (Updated with Account Filter) ---
-async function loadScheduler() {
-    checkRollingSchedules();
-    console.log(`CleanDash: Loading Schedule (${currentView} view)...`);
+// --- 4. MAIN LOAD FUNCTION ---
+window.loadScheduler = async function() {
+    // Check rolling schedules first
+    if(window.checkRollingSchedules) window.checkRollingSchedules();
+
+    console.log(`CleanDash: Loading Schedule (${window.currentView} view)...`);
     const container = document.getElementById('schedulerGrid');
 
     if (container) {
@@ -69,7 +72,13 @@ async function loadScheduler() {
     }
 
     if (!container.innerHTML.trim()) container.innerHTML = '<div style="grid-column:1/-1; text-align:center; padding:2rem; color:#888;">Loading schedule...</div>';
-    if (!window.currentUser) return;
+
+    // --- AUTH RETRY LOGIC ---
+    if (!window.currentUser) {
+        console.log("Scheduler: User not ready, retrying in 500ms...");
+        setTimeout(window.loadScheduler, 500);
+        return;
+    }
 
     try {
         const [userDoc, jobs, accountsSnap, empSnap] = await Promise.all([
@@ -80,7 +89,7 @@ async function loadScheduler() {
         ]);
 
         const accountAlarms = {};
-        const accountsList = []; // Store for dropdown
+        const accountsList = [];
         accountsSnap.forEach(doc => {
             const data = doc.data();
             accountsList.push({ id: doc.id, name: data.name });
@@ -98,23 +107,20 @@ async function loadScheduler() {
         schedulerSettings = userDoc.exists ? userDoc.data() : {};
 
         updateHeaderUI();
-        renderFilterDropdown(employees);      // Existing Employee Filter
-        renderAccountDropdown(accountsList);  // NEW Account Filter
+        renderFilterDropdown(employees);
+        renderAccountDropdown(accountsList);
         renderColorToggle();
 
         const alertControls = document.getElementById('alertControls');
         if(alertControls) alertControls.style.display = 'flex';
-        // ... (keep existing email settings logic) ...
 
         // --- FILTERING LOGIC ---
         let filteredJobs = jobs;
 
-        // 1. Filter by Employee
         if (currentEmpFilter !== 'ALL') {
             filteredJobs = filteredJobs.filter(job => job.employeeId === currentEmpFilter);
         }
 
-        // 2. Filter by Account (NEW)
         if (currentAccountFilter !== 'ALL') {
             filteredJobs = filteredJobs.filter(job => job.accountId === currentAccountFilter);
         }
@@ -125,11 +131,11 @@ async function loadScheduler() {
         const emailDelayMinutes = schedulerSettings.emailDelayMinutes || 60;
         const emailAlertsEnabled = document.getElementById('editEmailEnabled')?.checked ?? true;
 
-        if (currentView === 'week') renderWeekView(filteredJobs, alertThreshold, emailDelayMinutes, emailAlertsEnabled, accountAlarms);
-        else if (currentView === 'day') renderDayView(filteredJobs, alertThreshold, emailDelayMinutes, emailAlertsEnabled, accountAlarms);
-        else if (currentView === 'month') renderMonthView(filteredJobs, alertThreshold, emailDelayMinutes, emailAlertsEnabled, accountAlarms);
+        if (window.currentView === 'week') renderWeekView(filteredJobs, alertThreshold, emailDelayMinutes, emailAlertsEnabled, accountAlarms);
+        else if (window.currentView === 'day') renderDayView(filteredJobs, alertThreshold, emailDelayMinutes, emailAlertsEnabled, accountAlarms);
+        else if (window.currentView === 'month') renderMonthView(filteredJobs, alertThreshold, emailDelayMinutes, emailAlertsEnabled, accountAlarms);
 
-        if (currentView !== 'month') setupInteractions();
+        if (window.currentView !== 'month') setupInteractions();
         attachDblClickListeners();
         attachRowHighlighter();
 
@@ -137,6 +143,39 @@ async function loadScheduler() {
         console.error("Error loading jobs:", err);
         container.innerHTML = '<div style="color:red; padding:2rem; text-align:center;">Error loading schedule.</div>';
     }
+};
+
+// --- NEW HELPER: CREATE SHARED FILTER ROW ---
+function ensureFilterRow() {
+    let row = document.getElementById('schedulerFiltersRow');
+    if (!row) {
+        const header = document.querySelector('#scheduler .card-header');
+        const viewToggles = document.querySelector('#scheduler .view-toggles');
+
+        if (header) {
+            row = document.createElement('div');
+            row.id = 'schedulerFiltersRow';
+            // CSS for side-by-side layout
+            row.style.display = 'flex';
+            row.style.gap = '8px';
+            row.style.alignItems = 'center';
+            row.style.width = '100%';
+            row.style.marginBottom = '10px';
+
+            // Clean up old individual containers if they exist (prevents duplicates)
+            const old1 = document.getElementById('schedulerFilterContainer');
+            const old2 = document.getElementById('schedulerAccountFilterContainer');
+            if(old1) old1.remove();
+            if(old2) old2.remove();
+
+            if (viewToggles) {
+                header.insertBefore(row, viewToggles);
+            } else {
+                header.appendChild(row);
+            }
+        }
+    }
+    return row;
 }
 
 async function fetchJobs() {
@@ -158,67 +197,123 @@ async function fetchJobs() {
     return jobs;
 }
 
-// --- RENDER ACCOUNT FILTER (New Function) ---
-function renderAccountDropdown(accounts) {
-    let filterContainer = document.getElementById('schedulerAccountFilterContainer');
-
-    // If container doesn't exist, create it
-    if (!filterContainer) {
+// --- HELPER: CREATE SHARED FILTER ROW ---
+function ensureFilterRow() {
+    let row = document.getElementById('schedulerFiltersRow');
+    if (!row) {
         const header = document.querySelector('#scheduler .card-header');
-        const viewToggles = document.querySelector('#scheduler .view-toggles'); // We insert before the buttons
+        const viewToggles = document.querySelector('#scheduler .view-toggles');
 
-        if (header && viewToggles) {
-            filterContainer = document.createElement('div');
-            filterContainer.id = 'schedulerAccountFilterContainer';
-            filterContainer.style.marginRight = '10px'; // Space between dropdowns
+        if (header) {
+            row = document.createElement('div');
+            row.id = 'schedulerFiltersRow';
+            // CSS for side-by-side layout
+            row.style.display = 'flex';
+            row.style.gap = '8px';
+            row.style.alignItems = 'center';
+            row.style.width = '100%';
+            row.style.marginBottom = '10px';
 
-            const select = document.createElement('select');
-            select.id = 'schedulerAccFilterSelect';
-            select.className = 'form-control';
-            select.style.padding = '6px 12px';
-            select.style.borderRadius = '6px';
-            select.style.border = '1px solid #d1d5db';
-            select.style.fontSize = '0.9rem';
-            select.style.fontWeight = '600';
-            select.style.maxWidth = '200px'; // Prevent it from getting too wide
+            // Clean up old individual containers if they exist
+            const old1 = document.getElementById('schedulerFilterContainer');
+            const old2 = document.getElementById('schedulerAccountFilterContainer');
+            if(old1) old1.remove();
+            if(old2) old2.remove();
 
-            // On Change: Update global state and reload
-            select.onchange = function() {
-                currentAccountFilter = this.value;
-                loadScheduler();
-            };
-
-            filterContainer.appendChild(select);
-            // Insert it before the view toggles, but after the employee filter (handled by order of execution usually)
-            // To be safe, we insert before view toggles
-            header.insertBefore(filterContainer, viewToggles);
+            if (viewToggles) {
+                header.insertBefore(row, viewToggles);
+            } else {
+                header.appendChild(row);
+            }
         }
     }
+    return row;
+}
 
-    // Populate Options
-    const select = document.getElementById('schedulerAccFilterSelect');
-    if (select) {
-        // Save current selection to restore after rebuild
-        const currentSelection = select.value || currentAccountFilter;
+// --- RENDER EMPLOYEE FILTER ---
+function renderFilterDropdown(employees) {
+    // 1. Use the new shared row
+    const row = ensureFilterRow();
+    if (!row) return;
 
-        select.innerHTML = '';
+    let select = document.getElementById('schedulerEmpFilterSelect');
+    if (!select) {
+        select = document.createElement('select');
+        select.id = 'schedulerEmpFilterSelect';
+        select.className = 'form-control';
+        // 2. Add Flex styling
+        select.style.flex = '1';
+        select.style.minWidth = '0';
+        select.style.padding = '6px';
+        select.style.borderRadius = '6px';
+        select.style.border = '1px solid #d1d5db';
+        select.style.fontSize = '0.85rem';
+        select.style.fontWeight = '600';
 
-        // Default Option
-        const allOpt = document.createElement('option');
-        allOpt.value = 'ALL';
-        allOpt.textContent = 'All Locations';
-        select.appendChild(allOpt);
-
-        // Account Options
-        accounts.forEach(acc => {
-            const opt = document.createElement('option');
-            opt.value = acc.id;
-            opt.textContent = acc.name;
-            select.appendChild(opt);
-        });
-
-        select.value = currentSelection;
+        select.onchange = function() { currentEmpFilter = this.value; window.loadScheduler(); };
+        // 3. Append to ROW, not header
+        row.appendChild(select);
     }
+
+    // (Population logic remains the same)
+    const currentSelection = select.value || currentEmpFilter;
+    select.innerHTML = '';
+    const allOpt = document.createElement('option');
+    allOpt.value = 'ALL'; allOpt.textContent = 'All Staff';
+    select.appendChild(allOpt);
+    employees.forEach(emp => {
+        const opt = document.createElement('option');
+        opt.value = emp.id; opt.textContent = `👤 ${emp.name}`;
+        select.appendChild(opt);
+    });
+    select.value = currentSelection;
+}
+
+// --- RENDER ACCOUNT FILTER ---
+function renderAccountDropdown(accounts) {
+    // 1. Use the new shared row
+    const row = ensureFilterRow();
+    if (!row) return;
+
+    let select = document.getElementById('schedulerAccFilterSelect');
+    if (!select) {
+        select = document.createElement('select');
+        select.id = 'schedulerAccFilterSelect';
+        select.className = 'form-control';
+        // 2. Add Flex styling
+        select.style.flex = '1';
+        select.style.minWidth = '0';
+        select.style.padding = '6px';
+        select.style.borderRadius = '6px';
+        select.style.border = '1px solid #d1d5db';
+        select.style.fontSize = '0.85rem';
+        select.style.fontWeight = '600';
+
+        select.onchange = function() {
+            currentAccountFilter = this.value;
+            window.loadScheduler();
+        };
+        // 3. Append to ROW
+        row.appendChild(select);
+    }
+
+    // (Population logic remains the same)
+    const currentSelection = select.value || currentAccountFilter;
+    select.innerHTML = '';
+
+    const allOpt = document.createElement('option');
+    allOpt.value = 'ALL';
+    allOpt.textContent = 'All Locations';
+    select.appendChild(allOpt);
+
+    accounts.forEach(acc => {
+        const opt = document.createElement('option');
+        opt.value = acc.id;
+        opt.textContent = acc.name;
+        select.appendChild(opt);
+    });
+
+    select.value = currentSelection;
 }
 
 // --- 5. RENDERERS ---
@@ -236,7 +331,6 @@ function renderColorToggle() {
             toggleContainer.style.display = 'flex';
             toggleContainer.style.alignItems = 'center';
 
-
             header.insertBefore(toggleContainer, viewToggles);
         }
     }
@@ -246,23 +340,21 @@ function renderColorToggle() {
 
 window.toggleColorMode = function(checkbox) {
     showEmployeeColors = checkbox.checked;
-    loadScheduler();
+    window.loadScheduler();
 };
 
 function renderWeekView(jobs, alertThreshold, emailDelay, emailEnabled, accountAlarms) {
     const grid = document.getElementById('schedulerGrid');
     if(!grid) return;
 
-    // --- ENABLE SCROLLING FOR WEEK VIEW ---
     grid.style.overflow = 'auto';
     grid.style.display = 'block';
 
-    // min-width forces scroll on small screens so columns don't crush
     let html = '<div class="calendar-view" style="min-width: 1000px;">';
     html += generateTimeColumn();
     for (let i = 0; i < 7; i++) {
-        const dayDate = new Date(currentDate);
-        dayDate.setDate(currentDate.getDate() + i);
+        const dayDate = new Date(window.currentDate);
+        dayDate.setDate(window.currentDate.getDate() + i);
         html += renderDayColumn(dayDate, jobs, alertThreshold, emailDelay, emailEnabled, false, accountAlarms);
     }
     html += '</div>';
@@ -273,39 +365,39 @@ function renderDayView(jobs, alertThreshold, emailDelay, emailEnabled, accountAl
     const grid = document.getElementById('schedulerGrid');
     if(!grid) return;
 
-    // --- ENABLE SCROLLING FOR DAY VIEW ---
     grid.style.overflow = 'auto';
     grid.style.display = 'block';
 
     let html = '<div class="calendar-view">';
     html += generateTimeColumn();
-    html += renderDayColumn(currentDate, jobs, alertThreshold, emailDelay, emailEnabled, true, accountAlarms);
+    html += renderDayColumn(window.currentDate, jobs, alertThreshold, emailDelay, emailEnabled, true, accountAlarms);
     html += '</div>';
     grid.innerHTML = html;
+
+    // --- AUTO SCROLL TO 2 PM ---
+    if(grid.scrollHeight > grid.clientHeight) {
+        grid.scrollTop = (14 - START_HOUR) * PIXELS_PER_HOUR;
+    }
 }
 
-// --- 6. MONTH VIEW (GROUPED + SYMMETRICAL + WORKING BUTTON) ---
+// --- 6. MONTH VIEW ---
 function renderMonthView(jobs, alertThreshold, emailDelay, emailEnabled, accountAlarms) {
     const grid = document.getElementById('schedulerGrid');
     if(!grid) return;
 
-    // 1. Container Setup
     grid.style.overflow = 'hidden';
     grid.style.display = 'flex';
     grid.style.flexDirection = 'column';
     grid.style.background = 'white';
 
-    // 2. Date Math
-    const year = currentDate.getFullYear();
-    const month = currentDate.getMonth();
+    const year = window.currentDate.getFullYear();
+    const month = window.currentDate.getMonth();
     const firstDay = new Date(year, month, 1);
     const now = new Date();
 
-    // Start on the correct Sunday
     let iterator = new Date(firstDay);
     iterator.setDate(iterator.getDate() - iterator.getDay());
 
-    // 3. Grid Wrapper
     let html = `
     <div style="
         display: grid;
@@ -318,7 +410,6 @@ function renderMonthView(jobs, alertThreshold, emailDelay, emailEnabled, account
         box-sizing: border-box;">
     `;
 
-    // 4. Header Row
     const days = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'];
     days.forEach(day => {
         html += `<div style="
@@ -335,7 +426,6 @@ function renderMonthView(jobs, alertThreshold, emailDelay, emailEnabled, account
         ">${day}</div>`;
     });
 
-    // 5. Render 42 Days
     for(let i=0; i<42; i++) {
         const isCurrMonth = iterator.getMonth() === month;
         const dateStr = getLocalYMD(iterator);
@@ -349,7 +439,6 @@ function renderMonthView(jobs, alertThreshold, emailDelay, emailEnabled, account
             dateBubble = `<span style="background: #2563eb; color: white; border-radius: 50%; width: 24px; height: 24px; display: flex; align-items: center; justify-content: center; font-size: 0.8rem; font-weight: bold; margin: 2px;">${iterator.getDate()}</span>`;
         }
 
-        // --- GROUPING LOGIC ---
         const dayJobs = jobs.filter(j => isSameDay(j.start, iterator));
         const groups = {};
 
@@ -372,7 +461,6 @@ function renderMonthView(jobs, alertThreshold, emailDelay, emailEnabled, account
 
         const groupArr = Object.values(groups).sort((a,b) => a.start - b.start);
 
-        // CELL HTML
         html += `
         <div class="month-cell"
              onclick="window.showAssignShiftModal('17:00', '${dateStr}')"
@@ -394,7 +482,6 @@ function renderMonthView(jobs, alertThreshold, emailDelay, emailEnabled, account
             if(allDone) { border='10b981'; bgCol='dcfce7'; textCol='166534'; }
             else if(anyActive) { border='f59e0b'; bgCol='fffbeb'; textCol='b45309'; }
             else {
-                // --- FIXED: ADDED LATE CHECK HERE ---
                 const lateTime = new Date(g.start.getTime() + (alertThreshold * 60000));
                 if (now > lateTime) {
                     border='ef4444'; bgCol='fee2e2'; textCol='991b1b';
@@ -418,7 +505,6 @@ function renderMonthView(jobs, alertThreshold, emailDelay, emailEnabled, account
 
         html += `</div>`;
 
-        // --- FIXED "VIEW ALL" BUTTON ---
         if (dayJobs.length > 0) {
             html += `
             <div style="position: absolute; bottom: 2px; right: 2px; font-size: 1.2rem; font-weight: bold; color: #6b7280; cursor: pointer; z-index: 10; width: 24px; height: 24px; display:flex; align-items:center; justify-content:center; border-radius:4px;"
@@ -430,15 +516,15 @@ function renderMonthView(jobs, alertThreshold, emailDelay, emailEnabled, account
             </div>`;
         }
 
-        html += `</div>`; // End Cell
+        html += `</div>`;
         iterator.setDate(iterator.getDate() + 1);
     }
 
-    html += `</div>`; // End Grid
+    html += `</div>`;
     grid.innerHTML = html;
 }
 
-// --- 7. HELPER: DAY DETAILS POPUP (ACCOUNTS VIEW) ---
+// --- 7. HELPER: DAY DETAILS POPUP ---
 window.showMobileDayDetails = function(dateStr) {
     const existing = document.getElementById('mobileDayPopup');
     if(existing) existing.remove();
@@ -446,7 +532,6 @@ window.showMobileDayDetails = function(dateStr) {
     const targetDate = new Date(dateStr + 'T00:00:00');
     const allJobs = window.schedulerJobsCache || [];
 
-    // 1. Filter jobs for this day
     const dayJobs = allJobs.filter(j => {
         const d = j.start;
         return d.getDate() === targetDate.getDate() &&
@@ -454,7 +539,6 @@ window.showMobileDayDetails = function(dateStr) {
                d.getFullYear() === targetDate.getFullYear();
     });
 
-    // 2. Group by Account + Time
     const groups = {};
     dayJobs.forEach(job => {
         const timeKey = formatTime(job.start);
@@ -471,14 +555,12 @@ window.showMobileDayDetails = function(dateStr) {
             };
         }
         groups[groupKey].staff.push(job);
-        // Status priority: Completed > Started > Scheduled
         if(job.status === 'Started') groups[groupKey].status = 'Started';
     });
 
     const groupArr = Object.values(groups).sort((a,b) => a.start - b.start);
     const displayDate = targetDate.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
 
-    // 3. Build HTML
     let content = `
     <div style="padding:15px; background:#f8fafc; border-bottom:1px solid #e2e8f0; border-radius:8px 8px 0 0; display:flex; justify-content:space-between; align-items:center;">
         <div>
@@ -493,7 +575,6 @@ window.showMobileDayDetails = function(dateStr) {
         content += `<div style="text-align:center; padding:30px; color:#94a3b8;">No shifts scheduled for this day.</div>`;
     } else {
         groupArr.forEach(g => {
-            // Group Status Colors
             let border = '4px solid #3b82f6';
             let badge = `<span style="background:#e0f2fe; color:#0369a1; padding:2px 6px; border-radius:4px; font-size:0.7rem; font-weight:600;">Scheduled</span>`;
 
@@ -508,7 +589,6 @@ window.showMobileDayDetails = function(dateStr) {
                 badge = `<span style="background:#fef3c7; color:#b45309; padding:2px 6px; border-radius:4px; font-size:0.7rem; font-weight:600;">In Progress</span>`;
             }
 
-            // Staff Names List
             const names = g.staff.map(s => s.employeeName.split(' ')[0]).join(', ');
 
             content += `
@@ -540,7 +620,6 @@ window.showMobileDayDetails = function(dateStr) {
         </button>
     </div>`;
 
-    // 4. Render Overlay
     const overlay = document.createElement('div');
     overlay.id = 'mobileDayPopup';
     overlay.style.cssText = `
@@ -564,7 +643,6 @@ window.showMobileDayDetails = function(dateStr) {
     document.body.appendChild(overlay);
 };
 
-// --- 7B. GROUP DETAILS MODAL (Updated) ---
 window.openGroupDetails = function(dateStr, accountId, timeStr) {
     const existing = document.getElementById('groupDetailPopup');
     if(existing) existing.remove();
@@ -572,7 +650,6 @@ window.openGroupDetails = function(dateStr, accountId, timeStr) {
     const allJobs = window.schedulerJobsCache || [];
     const targetDate = new Date(dateStr + 'T00:00:00');
 
-    // Filter for specific block
     const groupJobs = allJobs.filter(j => {
         return isSameDay(j.start, targetDate) &&
                j.accountId === accountId &&
@@ -585,7 +662,6 @@ window.openGroupDetails = function(dateStr, accountId, timeStr) {
     const accName = firstJob.accountName;
     const niceDate = targetDate.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
 
-    // Setup for "Manage Roster" button
     const preAccId = firstJob.accountId;
     const preStartTime = get24hTime(firstJob.start);
     const preEndTime = get24hTime(firstJob.end);
@@ -602,9 +678,9 @@ window.openGroupDetails = function(dateStr, accountId, timeStr) {
     `;
 
     groupJobs.forEach(job => {
-        let statusColor = '#3b82f6'; // Blue (Scheduled)
-        if (job.status === 'Completed') statusColor = '#10b981'; // Green
-        else if (job.status === 'Started') statusColor = '#f59e0b'; // Orange
+        let statusColor = '#3b82f6';
+        if (job.status === 'Completed') statusColor = '#10b981';
+        else if (job.status === 'Started') statusColor = '#f59e0b';
 
         content += `
         <div style="display:flex; justify-content:space-between; align-items:center; padding:10px; background:white; border:1px solid #e2e8f0; border-radius:6px; margin-bottom:8px; box-shadow:0 1px 2px rgba(0,0,0,0.05);">
@@ -650,7 +726,6 @@ window.openGroupDetails = function(dateStr, accountId, timeStr) {
     document.body.appendChild(overlay);
 };
 
-// --- 8. UTILS: RENDER DAY/WEEK COLUMN (FIXED GROUPING) ---
 function renderDayColumn(dateObj, jobs, alertThreshold, emailDelay, emailEnabled, isSingleDay = false, accountAlarms = {}) {
     const dateStr = getLocalYMD(dateObj);
     const displayDate = dateObj.toLocaleDateString('en-US', { weekday: 'short', month: 'numeric', day: 'numeric' });
@@ -658,11 +733,9 @@ function renderDayColumn(dateObj, jobs, alertThreshold, emailDelay, emailEnabled
     const isToday = isSameDay(dateObj, now);
     const activeClass = (isToday && !isSingleDay) ? ' today-active' : '';
 
-    // 1. Filter jobs for this day
     const dayJobs = jobs.filter(j => isSameDay(j.start, dateObj));
 
-    // 2. Group by Account + Formatted Start/End Time
-    // (Using formatted strings ensures shifts at 5:00:00 and 5:00:05 group together)
+    // --- Grouping Logic ---
     const groups = {};
     dayJobs.forEach(job => {
         const startStr = formatTime(job.start);
@@ -672,7 +745,7 @@ function renderDayColumn(dateObj, jobs, alertThreshold, emailDelay, emailEnabled
         if (!groups[groupKey]) {
             groups[groupKey] = {
                 accId: job.accountId,
-                accName: job.accountName || "Unknown Account", // Fallback for missing names
+                accName: job.accountName || "Unknown Account",
                 start: job.start,
                 end: job.end,
                 timeStr: `${startStr} - ${endStr}`,
@@ -683,89 +756,17 @@ function renderDayColumn(dateObj, jobs, alertThreshold, emailDelay, emailEnabled
             };
         }
         groups[groupKey].staff.push(job);
-
-        // Visual Status Priority
         if (job.status === 'Started') groups[groupKey].status = 'Started';
     });
 
-    // --- HELPER: CHECK FOR CONFLICTS & RENDER LIST ---
-async function updateAvailabilityUI() {
-    const sDate = document.getElementById('shiftStartDate').value;
-    const sTime = document.getElementById('shiftStartTime').value;
-    const eTime = document.getElementById('shiftEndTime').value;
-    const currentShiftId = document.getElementById('shiftId').value;
-    const container = document.getElementById('shiftEmployeeContainer');
-
-    if (!sDate || !sTime || !eTime) return;
-
-    // 1. Get IDs that should be checked
-    // Priority: 1. Currently checked boxes (user interaction), 2. Pre-selected from button click
-    let selectedIds = [];
-    const currentCheckboxes = document.querySelectorAll('#shiftEmployeeContainer input:checked');
-    if (currentCheckboxes.length > 0) {
-        selectedIds = Array.from(currentCheckboxes).map(c => c.value);
-    } else if (container.dataset.preselected) {
-        try {
-            selectedIds = JSON.parse(container.dataset.preselected);
-            // Clear it so subsequent interactions work normally
-            delete container.dataset.preselected;
-        } catch(e) {}
-    }
-
-    // 2. Calculate Proposed Range
-    const start = new Date(`${sDate}T${sTime}:00`);
-    let end = new Date(`${sDate}T${eTime}:00`);
-    if (end <= start) end.setDate(end.getDate() + 1);
-
-    // 3. Fetch Conflicts
-    try {
-        // Query simplified: Get ALL future jobs for this user to be safe, filtering in memory is fast enough for <2000 jobs
-        // Optimization: Filter by date string if possible, or just grab all active jobs
-        // For now, let's grab jobs overlapping the day window to be efficient
-
-        const dayStart = new Date(start); dayStart.setHours(0,0,0,0);
-        const dayEnd = new Date(start); dayEnd.setDate(dayEnd.getDate()+2); // Check 48h window to be safe
-
-        const snap = await db.collection('jobs')
-            .where('owner', '==', window.currentUser.email)
-            .where('startTime', '>=', firebase.firestore.Timestamp.fromDate(dayStart))
-            .where('startTime', '<=', firebase.firestore.Timestamp.fromDate(dayEnd))
-            .get();
-
-        const busyMap = {};
-
-        snap.forEach(doc => {
-            if (doc.id === currentShiftId) return;
-            const job = doc.data();
-            if (job.status === 'Completed') return; // Ignore completed shifts? Or keep them? Usually keep them as conflict.
-
-            const jobStart = job.startTime.toDate();
-            const jobEnd = job.endTime.toDate();
-
-            // Strict Overlap Check
-            if (start < jobEnd && end > jobStart) {
-                busyMap[job.employeeId] = job.accountName;
-            }
-        });
-
-        // 4. Render List
-        await renderEmployeeCheckboxes('shiftEmployeeContainer', selectedIds, busyMap);
-
-    } catch (e) {
-        console.error("Conflict check failed:", e);
-    }
-}
-
-    // Convert to Array & Sort
     const groupArr = Object.values(groups).sort((a, b) => a.start - b.start);
 
-    // 3. Collision Detection (Visual Columns)
+    // --- Collision Logic ---
     const columns = [];
     groupArr.forEach(group => {
         let placed = false;
         for(let i = 0; i < columns.length; i++) {
             const lastInCol = columns[i][columns[i].length - 1];
-            // If this group starts after the last one ends, it fits in this column
             if (group.start >= lastInCol.end) {
                 columns[i].push(group);
                 group.colIndex = i;
@@ -782,10 +783,13 @@ async function updateAvailabilityUI() {
     const totalCols = columns.length || 1;
     const colWidth = 94 / totalCols;
 
-    // 4. Build HTML
+    // --- RENDER HTML ---
     let html = `<div class="calendar-day-col${activeClass}" style="${isSingleDay ? 'flex:1;' : ''}" data-date="${dateStr}">`;
     html += `<div class="cal-header">${displayDate}</div>`;
-    html += `<div class="day-slots">`;
+
+    // FIX: Force height using backticks for the string
+    const slotHeight = HOURS_TO_RENDER * PIXELS_PER_HOUR;
+    html += `<div class="day-slots" style="height:${slotHeight}px; position:relative; min-height:100%;">`;
 
     groupArr.forEach(group => {
         const startHour = group.start.getHours() + (group.start.getMinutes() / 60);
@@ -795,76 +799,49 @@ async function updateAvailabilityUI() {
         let duration = endHour - startHour;
         if(duration < 0.5) duration = 0.5;
 
-        // Position
         const topPx = (startHour - START_HOUR) * PIXELS_PER_HOUR;
-        const heightPx = Math.max(duration * PIXELS_PER_HOUR, 40); // Increased min-height for text visibility
+        const heightPx = Math.max(duration * PIXELS_PER_HOUR, 40);
         const leftPos = 3 + (group.colIndex * colWidth);
 
-        // Styling
-        let bgCol = 'e0f2fe'; let borderCol = '3b82f6'; let textCol = '1e40af'; // Blue
-
+        let bgCol = 'e0f2fe'; let borderCol = '3b82f6'; let textCol = '1e40af';
         const allDone = group.staff.every(s => s.status === 'Completed');
         const anyActive = group.staff.some(s => s.status === 'Started');
 
-        if (allDone) { bgCol = 'dcfce7'; borderCol = '10b981'; textCol = '166534'; } // Green
-        else if (anyActive) { bgCol = 'fffbeb'; borderCol = 'f59e0b'; textCol = 'b45309'; } // Orange
-
-        // Check for "Late"
-        if (!allDone && !anyActive) {
-            const lateTime = new Date(group.start.getTime() + alertThreshold * 60000);
-            if (now > lateTime) { bgCol = 'fee2e2'; borderCol = 'ef4444'; textCol = '991b1b'; } // Red
+        if (allDone) { bgCol = 'dcfce7'; borderCol = '10b981'; textCol = '166534'; }
+        else if (anyActive) { bgCol = 'fffbeb'; borderCol = 'f59e0b'; textCol = 'b45309'; }
+        else if (now > new Date(group.start.getTime() + alertThreshold * 60000)) {
+            bgCol = 'fee2e2'; borderCol = 'ef4444'; textCol = '991b1b';
         }
 
         const alarmIcon = group.hasAlarm ? '🔒' : '';
         const staffCount = group.staff.length;
-        // Staff Badge Logic
         const staffBadge = staffCount > 1
             ? `<span style="background:rgba(255,255,255,0.6); padding:1px 5px; border-radius:4px; font-weight:bold; margin-left:auto;">${staffCount} Staff</span>`
             : `<div style="font-size:0.75rem; opacity:0.9; margin-left:auto;">👤 ${group.staff[0].employeeName.split(' ')[0]}</div>`;
 
         html += `
         <div class="day-event"
-             style="
-                top:${topPx}px;
-                height:${heightPx}px;
-                width:${colWidth}%;
-                left:${leftPos}%;
-                background-color:#${bgCol};
-                border-left:4px solid #${borderCol};
-                color:#${textCol};
-                padding:4px 6px;
-                cursor:pointer;
-                display:flex;
-                flex-direction:column;
-                justify-content:flex-start;
-                box-shadow:0 2px 4px rgba(0,0,0,0.05);
-                border-radius:4px;
-                overflow:hidden;
-                position:absolute; /* Ensure absolute positioning works */
-             "
+             style="top:${topPx}px; height:${heightPx}px; width:${colWidth}%; left:${leftPos}%;
+                    background-color:#${bgCol}; border-left:4px solid #${borderCol}; color:#${textCol};
+                    padding:4px 6px; cursor:pointer; display:flex; flex-direction:column; justify-content:flex-start;
+                    box-shadow:0 2px 4px rgba(0,0,0,0.05); border-radius:4px; overflow:hidden; position:absolute;"
              onclick="event.stopPropagation(); window.openGroupDetails('${dateStr}', '${group.accId}', '${group.simpleTime}')"
-             title="${group.accName} (${group.timeStr})">
+             title="${group.accName}">
 
             <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:2px; font-size:0.75rem;">
                 <span style="font-weight:700;">${group.timeStr}</span>
                 <span style="font-size:0.8rem;">${alarmIcon}</span>
             </div>
-
             <div style="font-weight:600; font-size:0.85rem; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; margin-bottom:auto;">
                 ${group.accName}
             </div>
-
-            <div style="display:flex; align-items:center; margin-top:2px;">
-                ${staffBadge}
-            </div>
+            <div style="display:flex; align-items:center; margin-top:2px;">${staffBadge}</div>
         </div>`;
     });
 
     html += `</div></div>`;
     return html;
 }
-
-// --- 9. HELPERS ---
 
 function generateTimeColumn() {
     let html = '<div class="calendar-time-col">';
@@ -880,7 +857,6 @@ function generateTimeColumn() {
     return html;
 }
 
-// --- 10. QUICK ACTION: OVERRIDE SHIFT ---
 window.quickOverride = async function(jobId) {
     if(!confirm("Mark this shift as COMPLETED now?")) return;
 
@@ -891,7 +867,6 @@ window.quickOverride = async function(jobId) {
 
         const updateData = { status: 'Completed' };
 
-        // Auto-fill actual times with scheduled times if they are missing
         if(!data.actualStartTime) updateData.actualStartTime = data.startTime;
         if(!data.actualEndTime) updateData.actualEndTime = data.endTime;
 
@@ -899,10 +874,9 @@ window.quickOverride = async function(jobId) {
 
         window.showToast("Shift Overridden: Completed ✅");
 
-        // Close popup and reload
         const popup = document.getElementById('groupDetailPopup');
         if(popup) popup.remove();
-        loadScheduler();
+        window.loadScheduler();
 
     } catch(e) {
         alert("Error: " + e.message);
@@ -974,50 +948,12 @@ function setupInteractions() {
 
         const jobId = activeEl.dataset.id;
         // ... (simplified drag/drop logic for grouped view - mostly for visual consistency)
-        loadScheduler();
+        window.loadScheduler();
 
         activeEl = null; mode = null;
     };
     grid._mouseDownHandler = onMouseDown;
     grid.addEventListener('mousedown', onMouseDown);
-}
-
-function renderFilterDropdown(employees) {
-    let filterContainer = document.getElementById('schedulerFilterContainer');
-    if (!filterContainer) {
-        const header = document.querySelector('#scheduler .card-header');
-        const viewToggles = document.querySelector('#scheduler .view-toggles');
-        if (header && viewToggles) {
-            filterContainer = document.createElement('div');
-            filterContainer.id = 'schedulerFilterContainer';
-            filterContainer.style.marginRight = '15px';
-            const select = document.createElement('select');
-            select.id = 'schedulerEmpFilterSelect';
-            select.className = 'form-control';
-            select.style.padding = '6px 12px';
-            select.style.borderRadius = '6px';
-            select.style.border = '1px solid #d1d5db';
-            select.style.fontSize = '0.9rem';
-            select.style.fontWeight = '600';
-            select.onchange = function() { currentEmpFilter = this.value; loadScheduler(); };
-            filterContainer.appendChild(select);
-            header.insertBefore(filterContainer, viewToggles);
-        }
-    }
-    const select = document.getElementById('schedulerEmpFilterSelect');
-    if (select) {
-        const currentSelection = select.value || currentEmpFilter;
-        select.innerHTML = '';
-        const allOpt = document.createElement('option');
-        allOpt.value = 'ALL'; allOpt.textContent = '👥 All Team Members';
-        select.appendChild(allOpt);
-        employees.forEach(emp => {
-            const opt = document.createElement('option');
-            opt.value = emp.id; opt.textContent = `👤 ${emp.name}`;
-            select.appendChild(opt);
-        });
-        select.value = currentSelection;
-    }
 }
 
 function attachRowHighlighter() {
@@ -1050,10 +986,13 @@ function attachRowHighlighter() {
 }
 
 function attachDblClickListeners() {
+    // We use "click" instead of "dblclick" for better mobile support
     document.querySelectorAll('.calendar-day-col').forEach(dayCol => {
-        dayCol.removeEventListener('dblclick', dblClickHandler);
-        dayCol.addEventListener('dblclick', dblClickHandler);
+        dayCol.removeEventListener('click', dblClickHandler); // Clean up
+        dayCol.addEventListener('click', dblClickHandler);    // Attach new
     });
+
+    // (Optional: Month view double click remains)
     const monthView = document.querySelector('.calendar-month-view');
     if (monthView) {
         monthView.removeEventListener('dblclick', dblClickHandler);
@@ -1062,17 +1001,23 @@ function attachDblClickListeners() {
 }
 
 function dblClickHandler(event) {
-    // Logic simplified for group view: Only click empty space to add
-    const slotHeight = 60;
+    // Safety: If they clicked a shift/event, ignore (handled by the event's onclick)
+    if (event.target.closest('.day-event')) return;
+
+    const slotHeight = 60; // Must match PIXELS_PER_HOUR
     const daySlots = event.target.closest('.day-slots');
+
     if (daySlots) {
         const yOffset = event.clientY - daySlots.getBoundingClientRect().top;
         const hourIndex = Math.floor(yOffset / slotHeight);
+
         let actualHour = hourIndex + START_HOUR;
         let clickedHour = actualHour % 24;
+
         const formattedTime = `${String(clickedHour).padStart(2, '0')}:00`;
         const dayCol = event.target.closest('.calendar-day-col');
         const date = dayCol ? dayCol.getAttribute('data-date') : null;
+
         if (date && typeof window.showAssignShiftModal === 'function') {
             window.showAssignShiftModal(formattedTime, date);
         }
@@ -1082,34 +1027,47 @@ function dblClickHandler(event) {
 function updateHeaderUI() {
     const label = document.getElementById('weekRangeDisplay');
     if(!label) return;
-    if (currentView === 'day') {
-        label.textContent = currentDate.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
-    } else if (currentView === 'month') {
-        label.textContent = currentDate.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+    if (window.currentView === 'day') {
+        label.textContent = window.currentDate.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
+    } else if (window.currentView === 'month') {
+        label.textContent = window.currentDate.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
     } else {
-        const endOfWeek = new Date(currentDate);
-        endOfWeek.setDate(currentDate.getDate() + 6);
-        label.textContent = `${currentDate.toLocaleDateString()} - ${endOfWeek.toLocaleDateString()}`;
+        const endOfWeek = new Date(window.currentDate);
+        endOfWeek.setDate(window.currentDate.getDate() + 6);
+        label.textContent = `${window.currentDate.toLocaleDateString()} - ${endOfWeek.toLocaleDateString()}`;
     }
     document.querySelectorAll('.btn-view-toggle').forEach(btn => {
-        btn.classList.toggle('active', btn.dataset.view === currentView);
+        btn.classList.toggle('active', btn.dataset.view === window.currentView);
     });
 }
 
-window.changeView = function(view) {
-    currentView = view;
-    if (view === 'week' || view === 'day') {
-        currentDate = new Date();
-    }
-    currentDate = normalizeDate(currentDate, currentView);
-    loadScheduler();
+// Make sure this starts with "window."
+window.changeView = function(viewName) {
+    window.currentView = viewName;
+
+    // Update Button Styling (Active State)
+    document.querySelectorAll('.btn-view-toggle').forEach(btn => {
+        btn.classList.remove('active');
+        if(btn.dataset.view === viewName) btn.classList.add('active');
+    });
+
+    window.loadScheduler();
 };
 
+// Make sure this starts with "window."
 window.changePeriod = function(direction) {
-    if (currentView === 'day') { currentDate.setDate(currentDate.getDate() + direction); }
-    else if (currentView === 'week') { currentDate.setDate(currentDate.getDate() + (direction * 7)); }
-    else if (currentView === 'month') { currentDate.setMonth(currentDate.getMonth() + direction); }
-    loadScheduler();
+    const d = window.currentDate;
+
+    if (window.currentView === 'day') {
+        d.setDate(d.getDate() + direction);
+    } else if (window.currentView === 'week') {
+        d.setDate(d.getDate() + (direction * 7));
+    } else if (window.currentView === 'month') {
+        d.setMonth(d.getMonth() + direction);
+    }
+
+    window.currentDate = new Date(d); // Force update
+    window.loadScheduler();
 };
 
 function isSameDay(d1, d2) {
@@ -1126,7 +1084,7 @@ window.saveScheduleSettings = async function() {
     const emailAlertsEnabled = document.getElementById('editEmailEnabled').checked;
     await db.collection('users').doc(window.currentUser.uid).set({ emailDelayMinutes, emailAlertsEnabled }, { merge: true });
     window.showToast("Settings updated!");
-    loadScheduler();
+    window.loadScheduler();
 };
 
 window.toggleRecurrenceOptions = function() {
@@ -1137,12 +1095,10 @@ window.toggleRecurrenceDay = function(btn) { btn.classList.toggle('selected'); }
 
 // --- MANUAL SHIFT & DROPDOWN LOGIC ---
 
-// --- UPDATED RENDERER (With Conflict Logic) ---
 async function renderEmployeeCheckboxes(containerId, selectedIds = [], busyMap = {}) {
     const container = document.getElementById(containerId);
     if(!container) return;
 
-    // Only show loading if empty (first load)
     if (container.innerHTML === '') container.innerHTML = '<div style="padding:10px; color:#999;">Loading team...</div>';
 
     try {
@@ -1159,20 +1115,14 @@ async function renderEmployeeCheckboxes(containerId, selectedIds = [], busyMap =
 
         snap.forEach(doc => {
             const e = doc.data();
-            // 1. Check if previously selected
             const isChecked = selectedIds.includes(doc.id) ? 'checked' : '';
 
-            // 2. Check Conflict Map
             const isBusy = busyMap.hasOwnProperty(doc.id);
             const busyLocation = isBusy ? busyMap[doc.id] : '';
 
-            // 3. Define Attributes
-            // 'disabledClass' makes it look gray (CSS)
             const disabledClass = isBusy ? 'disabled' : '';
-            // 'disabledAttr' makes it unclickable (HTML) - CRITICAL FIX
             const disabledAttr = isBusy ? 'disabled' : '';
 
-            // 4. Create Badge
             const busyHtml = isBusy ? `<span class="busy-tag">🔴 Busy at ${busyLocation}</span>` : '';
 
             const div = document.createElement('div');
@@ -1191,6 +1141,62 @@ async function renderEmployeeCheckboxes(containerId, selectedIds = [], busyMap =
     }
 }
 
+async function updateAvailabilityUI() {
+    const sDate = document.getElementById('shiftStartDate').value;
+    const sTime = document.getElementById('shiftStartTime').value;
+    const eTime = document.getElementById('shiftEndTime').value;
+    const currentShiftId = document.getElementById('shiftId').value;
+    const container = document.getElementById('shiftEmployeeContainer');
+
+    if (!sDate || !sTime || !eTime) return;
+
+    let selectedIds = [];
+    const currentCheckboxes = document.querySelectorAll('#shiftEmployeeContainer input:checked');
+    if (currentCheckboxes.length > 0) {
+        selectedIds = Array.from(currentCheckboxes).map(c => c.value);
+    } else if (container.dataset.preselected) {
+        try {
+            selectedIds = JSON.parse(container.dataset.preselected);
+            delete container.dataset.preselected;
+        } catch(e) {}
+    }
+
+    const start = new Date(`${sDate}T${sTime}:00`);
+    let end = new Date(`${sDate}T${eTime}:00`);
+    if (end <= start) end.setDate(end.getDate() + 1);
+
+    try {
+        const dayStart = new Date(start); dayStart.setHours(0,0,0,0);
+        const dayEnd = new Date(start); dayEnd.setDate(dayEnd.getDate()+2);
+
+        const snap = await db.collection('jobs')
+            .where('owner', '==', window.currentUser.email)
+            .where('startTime', '>=', firebase.firestore.Timestamp.fromDate(dayStart))
+            .where('startTime', '<=', firebase.firestore.Timestamp.fromDate(dayEnd))
+            .get();
+
+        const busyMap = {};
+
+        snap.forEach(doc => {
+            if (doc.id === currentShiftId) return;
+            const job = doc.data();
+            if (job.status === 'Completed') return;
+
+            const jobStart = job.startTime.toDate();
+            const jobEnd = job.endTime.toDate();
+
+            if (start < jobEnd && end > jobStart) {
+                busyMap[job.employeeId] = job.accountName;
+            }
+        });
+
+        await renderEmployeeCheckboxes('shiftEmployeeContainer', selectedIds, busyMap);
+
+    } catch (e) {
+        console.error("Conflict check failed:", e);
+    }
+}
+
 async function populateDropdowns() {
     const accSelect = document.getElementById('shiftAccount');
     const empContainer = document.getElementById('shiftEmployeeContainer');
@@ -1201,7 +1207,6 @@ async function populateDropdowns() {
 
     if (!accSelect || !startSelect || !endSelect) return;
 
-    // 1. Populate Times
     if (startSelect.options.length === 0) {
         const times = [];
         for(let i=0; i<24; i++) {
@@ -1220,7 +1225,6 @@ async function populateDropdowns() {
         };
         fill(startSelect); fill(endSelect); fill(actStartSelect); fill(actEndSelect);
 
-        // Auto-increment end time
         const autoInc = (source, target) => {
              const val = source.value; if(!val) return;
              let [h, m] = val.split(':').map(Number);
@@ -1231,7 +1235,6 @@ async function populateDropdowns() {
         if(actStartSelect) actStartSelect.addEventListener('change', () => autoInc(actStartSelect, actEndSelect));
     }
 
-    // 2. Populate Accounts
     if (accSelect.options.length <= 1 && window.currentUser) {
         accSelect.innerHTML = '<option value="">Select Account...</option>';
         try {
@@ -1240,13 +1243,12 @@ async function populateDropdowns() {
         } catch (e) { console.error("Dropdown load error:", e); }
     }
 
-    // 3. Populate Employees (New Checkbox Logic)
     if (empContainer && empContainer.innerHTML === '') {
         await renderEmployeeCheckboxes('shiftEmployeeContainer');
     }
 }
 
-// --- 9. MANUAL SHIFT: CREATE MODE (Updated with Conflict Check) ---
+// --- 9. MANUAL SHIFT: CREATE MODE ---
 window.showAssignShiftModal = async function(startTime = "17:00", dateStr = null, preAccountId = null, preEndTime = null, preEmpIds = null) {
     document.getElementById('shiftModal').style.display = 'flex';
     document.getElementById('shiftModalTitle').textContent = "Assign Shift";
@@ -1261,17 +1263,13 @@ window.showAssignShiftModal = async function(startTime = "17:00", dateStr = null
     document.getElementById('shiftEmployeeContainer').style.display = 'block';
     document.getElementById('shiftEmployeeReadOnly').style.display = 'none';
 
-    // 1. SETUP SELECTED IDs
-    // We store these in a global variable or data attribute so updateAvailabilityUI can access them
     const container = document.getElementById('shiftEmployeeContainer');
     let initialIds = [];
     if (preEmpIds) initialIds = preEmpIds.split(',');
     container.dataset.preselected = JSON.stringify(initialIds);
 
-    // 2. LOAD DROPDOWNS
     await populateDropdowns();
 
-    // 3. SET VALUES
     if (dateStr) document.getElementById('shiftStartDate').value = dateStr;
     else document.getElementById('shiftStartDate').value = getLocalYMD(new Date());
 
@@ -1288,7 +1286,6 @@ window.showAssignShiftModal = async function(startTime = "17:00", dateStr = null
     if (preAccountId) document.getElementById('shiftAccount').value = preAccountId;
     else document.getElementById('shiftAccount').value = "";
 
-    // 4. ATTACH LIVE LISTENERS
     const inputs = ['shiftStartDate', 'shiftStartTime', 'shiftEndTime'];
     inputs.forEach(id => {
         const el = document.getElementById(id);
@@ -1296,8 +1293,6 @@ window.showAssignShiftModal = async function(startTime = "17:00", dateStr = null
         el.addEventListener('change', updateAvailabilityUI);
     });
 
-    // 5. INITIAL CONFLICT CHECK & RENDER
-    // This will render the checkboxes AND apply the busy logic immediately
     await updateAvailabilityUI();
 };
 
@@ -1322,7 +1317,6 @@ window.editJob = async function(job) {
     document.getElementById('btnDeleteShift').style.display = 'inline-block';
     document.getElementById('manualTimeSection').style.display = 'block';
 
-    // Hide Multi-Select, Show Read-Only Name for Editing
     document.getElementById('shiftEmployeeContainer').style.display = 'none';
     const ro = document.getElementById('shiftEmployeeReadOnly');
     ro.style.display = 'block';
@@ -1367,7 +1361,7 @@ window.autoFillCompleted = function() {
     window.showToast("Times matched to schedule. Click 'Save Shift' to finish.");
 };
 
-// --- SAVE SHIFT (Updated - No Repeat) ---
+// --- SAVE SHIFT ---
 window.saveShift = async function() {
     const id = document.getElementById('shiftId').value;
     const accSelect = document.getElementById('shiftAccount');
@@ -1391,7 +1385,6 @@ window.saveShift = async function() {
         let baseEnd = new Date(`${sDate}T${eTime}:00`);
         if (baseEnd <= baseStart) baseEnd.setDate(baseEnd.getDate() + 1);
 
-        // SCENARIO 1: EDIT SINGLE SHIFT (via "Edit" button)
         if (id) {
             const data = {
                 accountId: accSelect.value,
@@ -1417,9 +1410,7 @@ window.saveShift = async function() {
             await db.collection('jobs').doc(id).update(data);
             window.showToast("Shift Updated");
         }
-        // SCENARIO 2: ROSTER SYNC (Create New)
         else {
-            // 1. Clear existing for this block (to allow adding/removing people freely)
             const accId = accSelect.value;
             const overlapSnap = await db.collection('jobs')
                 .where('accountId', '==', accId)
@@ -1431,7 +1422,6 @@ window.saveShift = async function() {
                 if(doc.data().status === 'Scheduled') batch.delete(doc.ref);
             });
 
-            // 2. Add Selected
             selectedEmps.forEach(emp => {
                 const newRef = db.collection('jobs').doc();
                 batch.set(newRef, {
@@ -1451,7 +1441,7 @@ window.saveShift = async function() {
         }
 
         closeShiftModal();
-        loadScheduler();
+        window.loadScheduler();
 
     } catch (e) { alert("Error: " + e.message); }
     finally { btn.disabled = false; btn.textContent = "Save Shift"; }
@@ -1461,22 +1451,25 @@ window.deleteJobFromModal = async function() {
     const id = document.getElementById('shiftId').value;
     if(!confirm("Cancel this shift?")) return;
     await db.collection('jobs').doc(id).delete();
-    closeShiftModal(); loadScheduler();
+    closeShiftModal(); window.loadScheduler();
 };
 
 window.closeShiftModal = function() { document.getElementById('shiftModal').style.display = 'none'; };
 
 if (Notification.permission !== "granted" && Notification.permission !== "denied") Notification.requestPermission();
 
+// Export loadScheduler globally one last time to be safe
 window.loadScheduler = loadScheduler;
 
-// --- AUTO-SCHEDULER LOGIC (MULTI-EMPLOYEE + PERSISTENCE) ---
+// --- AUTO-SCHEDULER LOGIC (RESTORED) ---
+// ==========================================
 
 // 1. OPEN WIZARD
 window.openAutoScheduleWizard = async function() {
     const accId = document.getElementById('scheduleAccountId').value;
     const accName = document.getElementById('schedModalTitle').textContent.replace('Schedule: ', '');
 
+    // Grab selected days (Green Chips) from the settings modal
     const selectedChips = document.querySelectorAll('#scheduleServiceDaysContainer .day-chip.selected');
     const selectedDays = Array.from(selectedChips).map(c => c.textContent.trim());
 
@@ -1487,6 +1480,9 @@ window.openAutoScheduleWizard = async function() {
 
     // Load checkboxes (empty initially)
     await renderEmployeeCheckboxes('as_employeeContainer', []);
+
+    // Hide Settings, Show Wizard
+    document.getElementById('scheduleSettingsModal').style.display = 'none';
     document.getElementById('autoScheduleModal').style.display = 'flex';
 };
 
@@ -1578,10 +1574,9 @@ window.confirmAutoSchedule = async function() {
         await batch.commit();
         window.showToast(`Generated ${createdCount} shifts!`);
         document.getElementById('autoScheduleModal').style.display = 'none';
-        document.getElementById('scheduleSettingsModal').style.display = 'none';
 
-        if (typeof loadScheduler === 'function') loadScheduler();
-        if (typeof loadAccountsList === 'function') loadAccountsList();
+        if (typeof window.loadScheduler === 'function') window.loadScheduler();
+        if (typeof window.loadAccountsList === 'function') window.loadAccountsList();
 
     } catch (e) { console.error(e); alert(e.message); }
     finally { btn.textContent = originalText; btn.disabled = false; }
@@ -1659,7 +1654,6 @@ window.checkRollingSchedules = async function() {
 // 4. CONTROL CENTER UPDATE (Sync Multi)
 window.updateScheduleSettings = async function() {
     const accId = document.getElementById('scheduleAccountId').value;
-    const accName = document.getElementById('schedModalTitle').textContent.replace('Schedule: ', '');
     const startTime = document.getElementById('sc_startTime').value;
     const endTime = document.getElementById('sc_endTime').value;
 
@@ -1716,7 +1710,8 @@ window.updateScheduleSettings = async function() {
                 emps.forEach(emp => {
                     const ref = db.collection('jobs').doc();
                     batch.set(ref, {
-                        accountName: accName,
+                        accountId: accId,
+                        accountName: document.getElementById('schedModalTitle').textContent.replace('Schedule: ', ''),
                         employeeId: emp.id, employeeName: emp.name,
                         startTime: firebase.firestore.Timestamp.fromDate(sDate),
                         endTime: firebase.firestore.Timestamp.fromDate(eDate),
@@ -1749,6 +1744,7 @@ window.toggleAutoSchedule = async function(isActive) {
     } catch(e) { alert(e.message); }
 };
 
+// --- HELPER: TIME FORMATTER FOR POPUP ---
 function get24hTime(dateObj) {
     const h = String(dateObj.getHours()).padStart(2, '0');
     const m = String(dateObj.getMinutes()).padStart(2, '0');

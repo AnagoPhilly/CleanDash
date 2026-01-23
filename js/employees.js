@@ -36,7 +36,8 @@ function renderColorPalette(currentColor) {
             dot.style.boxShadow = '0 0 0 2px #3b82f6';
         }
 
-        dot.onclick = () => {
+        dot.onclick = (e) => {
+            e.stopPropagation();
             document.querySelectorAll('.color-dot').forEach(d => {
                 d.classList.remove('selected');
                 d.style.boxShadow = '0 0 0 1px #ddd';
@@ -44,10 +45,19 @@ function renderColorPalette(currentColor) {
             dot.classList.add('selected');
             dot.style.boxShadow = '0 0 0 2px #3b82f6';
             selectedColor = color;
+
+            const indicator = document.getElementById('selectedColorIndicator');
+            if(indicator) indicator.style.backgroundColor = selectedColor;
+            document.getElementById('empColor').value = selectedColor;
+
+            document.getElementById('colorDropdown').style.display = 'none';
         };
 
         paletteDiv.appendChild(dot);
     });
+
+    const indicator = document.getElementById('selectedColorIndicator');
+    if(indicator) indicator.style.backgroundColor = selectedColor;
 }
 
 // --- 3. LOAD EMPLOYEES LIST ---
@@ -56,7 +66,6 @@ window.loadEmployees = async function() {
     const waitingDiv = document.getElementById('employeeListWaiting');
     const inactiveDiv = document.getElementById('employeeListInactive');
 
-    // Clear previous lists
     if(activeDiv) activeDiv.innerHTML = '<div style="padding:20px; text-align:center;">Loading...</div>';
     if(waitingDiv) waitingDiv.innerHTML = '';
     if(inactiveDiv) inactiveDiv.innerHTML = '';
@@ -72,7 +81,6 @@ window.loadEmployees = async function() {
         let activeRows = '', waitingRows = '', inactiveRows = '';
         let hasActive = false, hasWaiting = false, hasInactive = false;
 
-        // REMOVED STATUS COLUMN HEADER
         const tableHead = `
             <table class="data-table" style="width:100%; border-collapse:collapse; background:white;">
             <thead>
@@ -94,7 +102,6 @@ window.loadEmployees = async function() {
                 ? `<div>${e.address}</div>`
                 : `<span style="color:#999; font-style:italic;">--</span>`;
 
-            // REMOVED STATUS COLUMN CELL
             const row = `
             <tr style="border-bottom:1px solid #f3f4f6;">
                 <td style="padding:12px;">
@@ -135,23 +142,24 @@ window.loadEmployees = async function() {
 // Open Modal for NEW Employee
 window.showAddEmployeeModal = function() {
     document.getElementById('empModalTitle').textContent = "Add Team Member";
-    document.getElementById('empId').value = ""; // Clear ID -> New Mode
+    document.getElementById('empId').value = "";
 
-    // Clear Inputs
     document.getElementById('empName').value = "";
     document.getElementById('empEmail').value = "";
     document.getElementById('empPhone').value = "";
-    document.getElementById('empAddress').value = "";
+
+    // --- CLEAR 4 NEW ADDRESS FIELDS ---
+    if(document.getElementById('empStreet')) document.getElementById('empStreet').value = "";
+    if(document.getElementById('empCity')) document.getElementById('empCity').value = "";
+    if(document.getElementById('empState')) document.getElementById('empState').value = "";
+    if(document.getElementById('empZip')) document.getElementById('empZip').value = "";
+
     document.getElementById('empWage').value = "";
     document.getElementById('empRole').value = "General Cleaner";
     document.getElementById('empStatus').value = "Active";
 
-    // Setup Color Picker
     renderColorPalette('#2dd4bf');
-
-    // Show Modal
-    const modal = document.getElementById('employeeModal');
-    modal.style.display = 'flex';
+    document.getElementById('employeeModal').style.display = 'flex';
 };
 
 // Open Modal for EDIT Employee
@@ -163,21 +171,31 @@ window.editEmployee = async function(id) {
         const data = doc.data();
 
         document.getElementById('empModalTitle').textContent = "Edit Team Member";
-        document.getElementById('empId').value = id; // Set ID -> Edit Mode
+        document.getElementById('empId').value = id;
 
-        // Populate Fields (Checking IDs from employee.html)
         document.getElementById('empName').value = data.name || '';
         document.getElementById('empEmail').value = data.email || '';
         document.getElementById('empPhone').value = data.phone || '';
-        document.getElementById('empAddress').value = data.address || '';
+
+        // --- POPULATE 4 ADDRESS FIELDS ---
+        // If they have the new format, use it. If not, fallback to old 'address' string.
+        if(document.getElementById('empStreet'))
+            document.getElementById('empStreet').value = data.street || data.address || '';
+
+        if(document.getElementById('empCity'))
+            document.getElementById('empCity').value = data.city || '';
+
+        if(document.getElementById('empState'))
+            document.getElementById('empState').value = data.state || '';
+
+        if(document.getElementById('empZip'))
+            document.getElementById('empZip').value = data.zip || '';
+
         document.getElementById('empWage').value = data.wage || '';
         document.getElementById('empRole').value = data.role || 'General Cleaner';
         document.getElementById('empStatus').value = data.status || 'Active';
 
-        // Set Color
         renderColorPalette(data.color || '#2dd4bf');
-
-        // Show Modal
         document.getElementById('employeeModal').style.display = 'flex';
 
     } catch(e) {
@@ -190,7 +208,7 @@ window.closeEmployeeModal = function() {
     document.getElementById('employeeModal').style.display = 'none';
 };
 
-// --- 5. SAVE FUNCTION ---
+// --- 5. SAVE FUNCTION (UPDATED) ---
 window.saveEmployee = async function() {
     const id = document.getElementById('empId').value;
     const name = document.getElementById('empName').value.trim();
@@ -198,22 +216,55 @@ window.saveEmployee = async function() {
     const phone = document.getElementById('empPhone').value.trim();
     const role = document.getElementById('empRole').value;
     const status = document.getElementById('empStatus').value;
-    const address = document.getElementById('empAddress').value.trim();
     const wage = parseFloat(document.getElementById('empWage').value) || 0;
+
+    // --- GATHER 4 ADDRESS FIELDS ---
+    const street = document.getElementById('empStreet').value.trim();
+    const city = document.getElementById('empCity').value.trim();
+    const state = document.getElementById('empState').value.trim();
+    const zip = document.getElementById('empZip').value.trim();
+
+    // Create full string for the Map system (so pins work)
+    const fullAddress = `${street}, ${city}, ${state} ${zip}`;
 
     if (!name || !email) return alert("Name and Email are required.");
 
     const btn = document.querySelector('#employeeModal .btn-primary');
     const originalText = btn.textContent;
     btn.disabled = true;
-    btn.textContent = "Saving...";
+    btn.textContent = "Locating & Saving..."; // Feedback to user
 
     const employeeData = {
-        name, email, phone, role, status, address, wage,
+        name, email, phone, role, status, wage,
+        address: fullAddress,     // Full String for map
+        street, city, state, zip, // Separate fields for editing
         color: selectedColor,
         owner: window.currentUser.email,
         lastUpdated: firebase.firestore.FieldValue.serverTimestamp()
     };
+
+    // --- GEOCODING LOGIC: GET COORDINATES FOR THE MAP ---
+    if (fullAddress.length > 10) {
+        try {
+            // Use key from utils.js or fallback
+            const apiKey = window.LOCATIONIQ_KEY || "pk.c92dcfda3c6ea1c6da25f0c36c34c99e";
+            const url = `https://us1.locationiq.com/v1/search.php?key=${apiKey}&q=${encodeURIComponent(fullAddress)}&format=json`;
+
+            const res = await fetch(url);
+            const data = await res.json();
+
+            if (data && data.length > 0) {
+                // Save coordinates so the Map can drop the pin
+                employeeData.lat = parseFloat(data[0].lat);
+                employeeData.lng = parseFloat(data[0].lon);
+                console.log("Geocoding Success:", employeeData.lat, employeeData.lng);
+            } else {
+                console.warn("Address saved, but GPS location not found.");
+            }
+        } catch (err) {
+            console.error("Geocoding Error:", err);
+        }
+    }
 
     try {
         if (id) {
@@ -222,18 +273,15 @@ window.saveEmployee = async function() {
             window.showToast("Employee updated!");
         } else {
             // Create New
-            // 1. Create Auth Credential (Secondary App)
             const tempPass = "password";
             const secondaryApp = firebase.initializeApp(window.firebaseConfig, "Secondary");
             const userCred = await secondaryApp.auth().createUserWithEmailAndPassword(email, tempPass);
 
-            // 2. Save to Firestore using the new UID
             await db.collection('employees').doc(userCred.user.uid).set({
                 ...employeeData,
                 createdAt: firebase.firestore.FieldValue.serverTimestamp()
             });
 
-            // 3. Cleanup
             await secondaryApp.auth().signOut();
             secondaryApp.delete();
 
@@ -241,12 +289,15 @@ window.saveEmployee = async function() {
         }
 
         closeEmployeeModal();
-        loadEmployees(); // Refresh List
+        loadEmployees();
+
+        // Refresh the dashboard map if the function exists
+        if(window.loadDashboardMap) window.loadDashboardMap();
 
     } catch (e) {
         console.error("Save Error:", e);
         if(e.code === 'auth/email-already-in-use') {
-            alert("Error: This email is already registered in the system.");
+            alert("Error: This email is already registered.");
         } else {
             alert("Error saving: " + e.message);
         }
