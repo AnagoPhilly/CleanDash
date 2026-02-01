@@ -1,3 +1,5 @@
+
+
 /* scheduler.css */
 
 /* --- OUTLOOK-STYLE SCHEDULER --- */
@@ -37,6 +39,7 @@
     position: relative;
     display: flex;
     flex-direction: column;
+    scroll-behavior: smooth; /* Smooth scrolling for auto-scroll */
 }
 
 /* Ensure the inner grid wrapper fills height for Month View calculations */
@@ -45,6 +48,45 @@
     display: flex;
     flex-direction: column;
 }
+
+/* --- BY JOB (LIST VIEW) STYLES --- */
+.scheduler-list-view {
+    max-width: 800px;
+    margin: 0 auto;
+    width: 100%;
+}
+
+.list-view-card {
+    background: white;
+    border: 1px solid #e5e7eb;
+    border-radius: 8px;
+    margin-bottom: 15px;
+    display: flex;
+    overflow: hidden;
+    cursor: pointer;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+    transition: transform 0.15s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.15s ease;
+}
+
+.list-view-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+    border-color: #d1d5db;
+}
+
+.list-card-status-bar {
+    width: 6px;
+    flex-shrink: 0;
+}
+
+.list-card-content {
+    flex: 1;
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
 
 /* --- WEEK & DAY VIEW (Vertical Time Slots) --- */
 .calendar-view {
@@ -73,6 +115,7 @@
     text-align: center;
     padding-top: 5px;
     cursor: default; /* Keep cursor standard */
+    position: relative;
 }
 
 /* Day Columns */
@@ -98,15 +141,19 @@
     background: #fff;
     position: sticky;
     top: 0;
-    z-index: 10;
+    z-index: 110; /* UPDATED: Increased from 10 to 110 to cover scrolling events */
     box-shadow: 0 1px 2px rgba(0,0,0,0.05);
 }
 
 .day-slots {
     position: relative;
     height: 1800px; /* 30 hours * 60px/hr */
-    background-image: linear-gradient(to bottom, #f3f4f6 1px, transparent 1px);
-    background-size: 100% 60px;
+    /* Major line every 60px, Minor dashed line every 30px */
+    background-image:
+        linear-gradient(to bottom, #e5e7eb 1px, transparent 1px),
+        linear-gradient(to bottom, #f3f4f6 1px, transparent 1px);
+    background-size: 100% 60px, 100% 30px;
+    background-position: 0 0, 0 30px;
 }
 
 /* --- INTERACTIVE GRID HIGHLIGHTS --- */
@@ -136,59 +183,51 @@
 }
 
 .calendar-time-col .time-slot.active-time ~ .calendar-view::before {
-    background-color: rgba(13, 148, 136, 0.08); /* Light primary color highlight */
+    background-color: rgba(13, 148, 136, 0.05); /* Light primary color highlight */
+    border-top: 1px solid rgba(13, 148, 136, 0.2);
+    border-bottom: 1px solid rgba(13, 148, 136, 0.2);
 }
 
 /* Define the highlight transformation for each hour (0 to 29) */
-.calendar-time-col .time-slot[data-hour-index="0"].active-time ~ .calendar-view::before { transform: translateY(40px); }
-.calendar-time-col .time-slot[data-hour-index="1"].active-time ~ .calendar-view::before { transform: translateY(100px); }
-.calendar-time-col .time-slot[data-hour-index="2"].active-time ~ .calendar-view::before { transform: translateY(160px); }
-.calendar-time-col .time-slot[data-hour-index="3"].active-time ~ .calendar-view::before { transform: translateY(220px); }
-.calendar-time-col .time-slot[data-hour-index="4"].active-time ~ .calendar-view::before { transform: translateY(280px); }
-.calendar-time-col .time-slot[data-hour-index="5"].active-time ~ .calendar-view::before { transform: translateY(340px); }
-.calendar-time-col .time-slot[data-hour-index="6"].active-time ~ .calendar-view::before { transform: translateY(400px); }
-.calendar-time-col .time-slot[data-hour-index="7"].active-time ~ .calendar-view::before { transform: translateY(460px); }
-.calendar-time-col .time-slot[data-hour-index="8"].active-time ~ .calendar-view::before { transform: translateY(520px); }
-.calendar-time-col .time-slot[data-hour-index="9"].active-time ~ .calendar-view::before { transform: translateY(580px); }
-.calendar-time-col .time-slot[data-hour-index="10"].active-time ~ .calendar-view::before { transform: translateY(640px); }
-.calendar-time-col .time-slot[data-hour-index="11"].active-time ~ .calendar-view::before { transform: translateY(700px); }
-.calendar-time-col .time-slot[data-hour-index="12"].active-time ~ .calendar-view::before { transform: translateY(760px); }
-.calendar-time-col .time-slot[data-hour-index="13"].active-time ~ .calendar-view::before { transform: translateY(820px); }
-.calendar-time-col .time-slot[data-hour-index="14"].active-time ~ .calendar-view::before { transform: translateY(880px); }
-.calendar-time-col .time-slot[data-hour-index="15"].active-time ~ .calendar-view::before { transform: translateY(940px); }
-.calendar-time-col .time-slot[data-hour-index="16"].active-time ~ .calendar-view::before { transform: translateY(1000px); }
-.calendar-time-col .time-slot[data-hour-index="17"].active-time ~ .calendar-view::before { transform: translateY(1060px); }
-.calendar-time-col .time-slot[data-hour-index="18"].active-time ~ .calendar-view::before { transform: translateY(1120px); }
-.calendar-time-col .time-slot[data-hour-index="19"].active-time ~ .calendar-view::before { transform: translateY(1180px); }
-.calendar-time-col .time-slot[data-hour-index="20"].active-time ~ .calendar-view::before { transform: translateY(1240px); }
-.calendar-time-col .time-slot[data-hour-index="21"].active-time ~ .calendar-view::before { transform: translateY(1300px); }
-.calendar-time-col .time-slot[data-hour-index="22"].active-time ~ .calendar-view::before { transform: translateY(1360px); }
-.calendar-time-col .time-slot[data-hour-index="23"].active-time ~ .calendar-view::before { transform: translateY(1420px); }
-.calendar-time-col .time-slot[data-hour-index="24"].active-time ~ .calendar-view::before { transform: translateY(1480px); }
-.calendar-time-col .time-slot[data-hour-index="25"].active-time ~ .calendar-view::before { transform: translateY(1540px); }
-.calendar-time-col .time-slot[data-hour-index="26"].active-time ~ .calendar-view::before { transform: translateY(1600px); }
-.calendar-time-col .time-slot[data-hour-index="27"].active-time ~ .calendar-view::before { transform: translateY(1660px); }
-.calendar-time-col .time-slot[data-hour-index="28"].active-time ~ .calendar-view::before { transform: translateY(1720px); }
-.calendar-time-col .time-slot[data-hour-index="29"].active-time ~ .calendar-view::before { transform: translateY(1780px); }
+.calendar-time-col .time-slot[data-hour-index="0"].active-time ~ .calendar-view::before { transform: translateY(0px); }
+.calendar-time-col .time-slot[data-hour-index="1"].active-time ~ .calendar-view::before { transform: translateY(60px); }
+.calendar-time-col .time-slot[data-hour-index="2"].active-time ~ .calendar-view::before { transform: translateY(120px); }
+.calendar-time-col .time-slot[data-hour-index="3"].active-time ~ .calendar-view::before { transform: translateY(180px); }
+.calendar-time-col .time-slot[data-hour-index="4"].active-time ~ .calendar-view::before { transform: translateY(240px); }
+.calendar-time-col .time-slot[data-hour-index="5"].active-time ~ .calendar-view::before { transform: translateY(300px); }
+.calendar-time-col .time-slot[data-hour-index="6"].active-time ~ .calendar-view::before { transform: translateY(360px); }
+.calendar-time-col .time-slot[data-hour-index="7"].active-time ~ .calendar-view::before { transform: translateY(420px); }
+.calendar-time-col .time-slot[data-hour-index="8"].active-time ~ .calendar-view::before { transform: translateY(480px); }
+.calendar-time-col .time-slot[data-hour-index="9"].active-time ~ .calendar-view::before { transform: translateY(540px); }
+.calendar-time-col .time-slot[data-hour-index="10"].active-time ~ .calendar-view::before { transform: translateY(600px); }
+.calendar-time-col .time-slot[data-hour-index="11"].active-time ~ .calendar-view::before { transform: translateY(660px); }
+.calendar-time-col .time-slot[data-hour-index="12"].active-time ~ .calendar-view::before { transform: translateY(720px); }
+.calendar-time-col .time-slot[data-hour-index="13"].active-time ~ .calendar-view::before { transform: translateY(780px); }
+.calendar-time-col .time-slot[data-hour-index="14"].active-time ~ .calendar-view::before { transform: translateY(840px); }
+.calendar-time-col .time-slot[data-hour-index="15"].active-time ~ .calendar-view::before { transform: translateY(900px); }
+.calendar-time-col .time-slot[data-hour-index="16"].active-time ~ .calendar-view::before { transform: translateY(960px); }
+.calendar-time-col .time-slot[data-hour-index="17"].active-time ~ .calendar-view::before { transform: translateY(1020px); }
+.calendar-time-col .time-slot[data-hour-index="18"].active-time ~ .calendar-view::before { transform: translateY(1080px); }
+.calendar-time-col .time-slot[data-hour-index="19"].active-time ~ .calendar-view::before { transform: translateY(1140px); }
+.calendar-time-col .time-slot[data-hour-index="20"].active-time ~ .calendar-view::before { transform: translateY(1200px); }
+.calendar-time-col .time-slot[data-hour-index="21"].active-time ~ .calendar-view::before { transform: translateY(1260px); }
+.calendar-time-col .time-slot[data-hour-index="22"].active-time ~ .calendar-view::before { transform: translateY(1320px); }
+.calendar-time-col .time-slot[data-hour-index="23"].active-time ~ .calendar-view::before { transform: translateY(1380px); }
+.calendar-time-col .time-slot[data-hour-index="24"].active-time ~ .calendar-view::before { transform: translateY(1440px); }
+
 
 /* 2. Column Hover Highlight */
 .day-slots::after {
     content: '';
     position: absolute;
     top: 0; left: 0; right: 0; bottom: 0;
-    background-image: repeating-linear-gradient(to bottom, transparent 0px, transparent 59px, rgba(0, 0, 0, 0.05) 59px, rgba(0, 0, 0, 0.05) 60px);
-    background-size: 100% 60px;
+    /* Clean vertical hover effect */
+    background: transparent;
     pointer-events: none;
     transition: background-color 0.1s ease;
 }
 
-.calendar-day-col:hover .day-slots { cursor: pointer; background-color: rgba(13, 148, 136, 0.02); }
-.calendar-day-col:hover .day-slots::after {
-    background-image: repeating-linear-gradient(to bottom, rgba(13, 148, 136, 0.05) 0px, rgba(13, 148, 136, 0.05) 59px, rgba(0, 0, 0, 0.08) 59px, rgba(0, 0, 0, 0.08) 60px);
-    pointer-events: auto;
-}
-.calendar-time-col:hover { cursor: default; }
-
+.calendar-day-col:hover .day-slots { cursor: pointer; background-color: rgba(0, 0, 0, 0.01); }
 
 /* --- EVENTS (SHIFTS) --- */
 .day-event {
@@ -197,17 +236,17 @@
     left: 3%;
     background: #e0f2fe; /* Default Light Blue */
     border-left: 4px solid #3b82f6;
-    border-radius: 4px;
-    padding: 2px 4px;
+    border-radius: 6px; /* Increased border radius */
+    padding: 4px 6px;
     font-size: 0.75rem;
     overflow: hidden;
-    cursor: grab; /* Set initial grab cursor */
-    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    cursor: grab;
+    /* Enhanced shadow for card effect */
+    box-shadow: 0 2px 5px rgba(0,0,0,0.08), 0 1px 2px rgba(0,0,0,0.05);
 
-    transition: transform 0.2s ease, z-index 0.1s ease, box-shadow 0.2s ease;
-    z-index: 1; /* Base z-index */
+    transition: transform 0.15s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.15s ease, z-index 0.1s ease;
+    z-index: 10;
 
-    /* --- CRITICAL: Prevent text highlight during drag --- */
     user-select: none;
     -moz-user-select: none;
     -webkit-user-select: none;
@@ -222,33 +261,29 @@
     bottom: 0;
     left: 0;
     width: 100%;
-    height: 10px;
-    cursor: ns-resize; /* North-South resize cursor */
+    height: 12px;
+    cursor: ns-resize;
     z-index: 500;
 }
 
 .day-event:hover .resize-handle {
-    background: rgba(0,0,0,0.05);
-    border-bottom: 2px solid rgba(0,0,0,0.2);
+    background: linear-gradient(to bottom, transparent, rgba(0,0,0,0.1));
 }
 
 .day-event.dragging {
-    opacity: 0.8;
+    opacity: 0.9;
     z-index: 1000 !important;
-    box-shadow: 0 10px 20px rgba(0,0,0,0.2);
+    box-shadow: 0 12px 24px rgba(0,0,0,0.25);
     cursor: grabbing;
-    transition: none; /* Disable transition for smooth following */
+    transform: scale(1.02);
+    transition: none;
 }
 
 /* --- FIX: HOVER EFFECT --- */
-/* Expanded width for better readability, but NO height shrinking! */
 .day-event:not(:has(.resize-handle:hover)):hover {
-    transform: scale(1.05);
-    z-index: 1000 !important;
-    box-shadow: 0 8px 20px rgba(0,0,0,0.3);
-    width: 180px !important;
-    min-height: 60px !important;
-    white-space: normal;
+    transform: translateY(-2px) scale(1.01);
+    z-index: 100 !important;
+    box-shadow: 0 8px 16px rgba(0,0,0,0.15), 0 4px 6px rgba(0,0,0,0.1);
 }
 
 /* --- FIX: STABILITY WHEN RESIZING --- */
@@ -260,8 +295,8 @@
     box-shadow: 0 2px 4px rgba(0,0,0,0.1) !important;
 }
 
-.event-time { font-weight: 700; color: #1e40af; font-size: 0.7rem; margin-bottom: 2px; }
-.event-title { font-weight: 600; color: #1e3a8a; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.event-time { font-weight: 800; color: #1e40af; font-size: 0.75rem; margin-bottom: 2px; display: flex; align-items: center; justify-content: space-between; }
+.event-title { font-weight: 600; color: #1e3a8a; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; line-height: 1.2; }
 .event-meta { color: #6b7280; font-size: 0.7rem; margin-top: 2px; }
 
 /* --- UPDATED STATUS COLORS --- */
@@ -277,17 +312,17 @@
 
 .day-event.late { background: #fee2e2; border-left-color: #ef4444; }
 .day-event.late .event-time { color: #991b1b; }
-.day-event.done { background: #dcfce7; border-left-color: #10b981; opacity: 1; }
+.day-event.done { background: #dcfce7; border-left-color: #10b981; opacity: 0.9; }
 .day-event.done .event-time { color: #065f46; }
 
 /* --- TODAY COLUMN HIGHLIGHT (WEEK/DAY VIEW) --- */
 .calendar-day-col.today-active {
-    background-color: #f0fdfa !important;
+    background-color: rgba(240, 253, 250, 0.4) !important;
     border-left: 1px solid #ccfbf1;
     border-right: 1px solid #ccfbf1;
 }
 .calendar-day-col.today-active .cal-header {
-    background-color: #ccfbf1;
+    background-color: #f0fdfa;
     color: #0f766e;
     border-bottom: 2px solid #0d9488;
     font-weight: 800;
@@ -445,7 +480,7 @@
     flex-shrink: 0;
 }
 
-.color-dot:hover {
+.color-dot.hover {
     transform: scale(1.15);
     box-shadow: 0 0 0 2px rgba(0,0,0,0.2);
 }
@@ -489,9 +524,109 @@
 /* --- MOBILE SCHEDULER ADJUSTMENTS --- */
 @media (max-width: 768px) {
     .calendar-time-col { width: 50px; }
-    .calendar-day-col { min-width: 150px; }
+    .calendar-day-col { min-width: 170px; } /* Increased from 150px to 170px */
     .event-meta { display: none; }
-    .view-toggles { width: 100%; justify-content: center; }
+
+    /* --- MOBILE SCHEDULER & HEADER FIXES --- */
+
+    /* 1. Header Layout */
+    #scheduler .card-header {
+        display: flex !important;
+        flex-wrap: wrap !important;
+        flex-direction: row !important;
+        justify-content: space-between !important;
+        align-items: center !important;
+        padding: 4px 2px !important;
+        gap: 4px !important;
+        overflow: visible !important;
+        height: auto !important;
+    }
+
+    /* 2. Hide Title (Usually 1st child) */
+    #scheduler .card-header > div:first-child {
+        display: none !important;
+    }
+
+    /* 3. Group 1: Dropdowns (Shift/Location) -> ORDER 1 (Top Row) */
+    #scheduler .card-header > div:nth-child(2) {
+        order: 1 !important;
+        flex: 1 0 100% !important; /* Full width */
+        width: 100% !important;
+        margin-right: 0 !important;
+        margin-bottom: 6px !important;
+        display: flex !important;
+        gap: 4px !important;
+        justify-content: space-between !important;
+    }
+
+    /* Compact Dropdowns */
+    #scheduler .card-header select {
+        width: 100% !important;
+        min-width: 50px !important; /* Prevent total collapse */
+        flex: 1 !important;
+        font-size: 0.75rem !important;
+        height: 30px !important;
+        padding: 0 4px !important;
+        background-position: right 2px center !important;
+    }
+
+    /* 4. Group 2: Buttons (Add Shift, Arrows) -> ORDER 2 (Middle Row) */
+    #scheduler .card-header > div:nth-child(3) {
+        order: 2 !important;
+        width: 100% !important;
+        justify-content: center !important;
+        margin-bottom: 6px !important;
+        display: flex !important;
+        gap: 4px !important;
+        align-items: center !important;
+    }
+
+    /* Compact Buttons */
+    #scheduler .card-header button:not(.btn-view-toggle) {
+        padding: 0 8px !important;
+        font-size: 0.75rem !important;
+        height: 30px !important;
+        line-height: 30px !important;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        white-space: nowrap;
+    }
+
+    /* 5. View Toggles (Tabs) -> ORDER 3 (Bottom Row - Full Width) */
+    .view-toggles {
+        order: 3 !important;
+        width: 100% !important;
+        flex: 1 0 100% !important; /* Force full width line */
+        margin-top: 0px !important;
+        margin-bottom: 0px !important;
+        justify-content: center !important;
+        gap: 2px !important;
+    }
+
+    .btn-view-toggle {
+        flex: 1 !important;
+        width: auto !important;
+        text-align: center;
+        padding: 6px 0 !important;
+        font-size: 0.8rem !important;
+    }
+
+    /* --- MOBILE EVENT VISIBILITY FIXES --- */
+    /* Force events to be wider and wrap text */
+    .day-event {
+        width: 96% !important; /* Override JS inline width */
+        left: 2% !important;   /* Override JS inline left */
+        box-shadow: 0 2px 4px rgba(0,0,0,0.15) !important;
+        display: flex;
+        flex-direction: column;
+        justify-content: flex-start;
+    }
+
+    .day-event .event-title {
+        white-space: normal !important; /* Allow text wrapping */
+        line-height: 1.15;
+    }
 
     /* --- MOBILE MONTH VIEW FIXES --- */
 
@@ -630,4 +765,48 @@
 /* Hide mobile button on desktop */
 .mobile-detail-btn {
     display: none;
+}
+
+/* --- NEW FEATURES FOR BETTER SCHEDULER --- */
+
+/* 1. Current Time Line - STATIC BLUE */
+.current-time-line {
+    position: absolute;
+    left: 0;
+    right: 0;
+    height: 2px;
+    background-color: #6098ff; /* Blue line */
+    z-index: 100; /* Above regular slots, below drag */
+    pointer-events: none;
+    box-shadow: 0 1px 3px rgba(96, 152, 255, 0.4);
+}
+
+.current-time-line::before {
+    content: '';
+    position: absolute;
+    left: -6px;
+    top: -5px;
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background-color: #6098ff;
+    border: 2px solid white;
+}
+
+/* 2. Preview/Ghost Event (Drag to Create) */
+.preview-event {
+    position: absolute;
+    background-color: rgba(13, 148, 136, 0.15); /* Very light Teal */
+    border: 2px dashed #0d9488;
+    border-radius: 6px;
+    z-index: 1500;
+    pointer-events: none;
+    box-sizing: border-box;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    color: #0f766e;
+    font-weight: bold;
+    font-size: 0.8rem;
+    backdrop-filter: blur(1px);
 }

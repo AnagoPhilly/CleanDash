@@ -153,7 +153,16 @@ async function loadGodModeData() {
             }
         });
 
-        // --- C. UPDATE KPI CARDS ---
+        // --- C. CALCULATE ACTIVE EMPLOYEES PER OWNER ---
+        const empCounts = {};
+        empSnap.forEach(doc => {
+            const e = doc.data();
+            if (e.status === 'Active' && e.owner) {
+                empCounts[e.owner] = (empCounts[e.owner] || 0) + 1;
+            }
+        });
+
+        // --- D. UPDATE KPI CARDS ---
         if(document.getElementById('statOwners')) document.getElementById('statOwners').textContent = ownerCount;
 
         const totalActiveAccounts = allOwners.reduce((sum, owner) => sum + owner.accountCount, 0);
@@ -162,11 +171,12 @@ async function loadGodModeData() {
         if(document.getElementById('statRevenue')) document.getElementById('statRevenue').textContent = '$' + totalRev.toLocaleString();
         if(document.getElementById('statEmployees')) document.getElementById('statEmployees').textContent = empSnap.size;
 
-        // --- D. RENDER FRANCHISE OWNERS LIST ---
+        // --- E. RENDER FRANCHISE OWNERS LIST ---
         let ownerHtml = '';
         allOwners.sort((a,b) => b.revenue - a.revenue); // Sort by highest revenue
 
         allOwners.forEach(u => {
+            const activeEmps = empCounts[u.email] || 0;
             ownerHtml += `
             <div class="user-row">
                 <div style="flex: 1;">
@@ -174,6 +184,12 @@ async function loadGodModeData() {
                     <div style="font-size: 0.85rem; color: #666;">${u.email}</div>
                     <div style="font-size: 0.75rem; color: #0d9488; font-weight:600;">Fran ID: ${u.franId || 'N/A'}</div>
                 </div>
+
+                <div style="text-align: center; width: 120px; margin-right: 20px;">
+                    <div style="font-weight: 700; font-size: 1.2rem; color: #4b5563;">${activeEmps}</div>
+                    <div style="font-size: 0.75rem; color: #9ca3af; text-transform:uppercase; font-weight:600;">Active Staff</div>
+                </div>
+
                 <div style="text-align: right; padding-right: 20px;">
                     <div style="font-weight: 700; color: #0d9488;">${u.accountCount} Accounts</div>
                     <div style="font-size: 0.9rem; color: #444;">$${u.revenue.toLocaleString()}/mo</div>
@@ -186,7 +202,7 @@ async function loadGodModeData() {
         });
         ownerListEl.innerHTML = ownerHtml || '<div style="padding:20px;">No Franchise Owners found.</div>';
 
-        // --- E. RENDER ADMIN LIST ---
+        // --- F. RENDER ADMIN LIST ---
         renderAdmins();
 
         // --- NEW: AUTO-LOAD ACCOUNTS IF TAB IS OPEN ---
