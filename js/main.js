@@ -1,3 +1,4 @@
+
 // js/main.js
 
 // --- CRITICAL GLOBAL FUNCTIONS FOR ACCOUNTS.JS ---
@@ -73,6 +74,7 @@ function initNavigation() {
             if (page === 'pnl' && typeof window.loadPnL === 'function') window.loadPnL();
             if (page === 'cfee_calc' && typeof window.initCfeeCalc === 'function') window.initCfeeCalc();
             if (page === 'profile' && typeof window.loadProfile === 'function') window.loadProfile();
+            if (page === 'faq' && typeof window.renderFAQ === 'function') window.renderFAQ();
         });
     });
 
@@ -103,12 +105,28 @@ window.toggleGodModeView = function() {
 
 // --- PWA INSTALLATION PROMPT LOGIC ---
 
-// --- PWA INSTALLATION PROMPT LOGIC (DEBUG VERSION) ---
 // Global variable to store the install "ticket"
 window.deferredInstallPrompt = null;
 
-// Global variable to hold the install ticket
-window.deferredInstallPrompt = null;
+// New global function to trigger the prompt programmatically
+window.triggerAppInstall = async function() {
+    if (window.deferredInstallPrompt) {
+        // Show the native browser prompt
+        window.deferredInstallPrompt.prompt();
+        // Wait for the user to respond
+        const { outcome } = await window.deferredInstallPrompt.userChoice;
+        console.log(`User response: ${outcome}`);
+        // Reset variable (can't use it twice)
+        window.deferredInstallPrompt = null;
+        
+        // Hide banner if visible
+        if (document.getElementById('installBanner')) {
+            document.getElementById('installBanner').style.display = 'none';
+        }
+        return true; // Prompt was shown
+    }
+    return false; // Prompt not available
+};
 
 function initPWAInstallLogic() {
     // 1. Listen for the browser "Ready" signal
@@ -116,6 +134,10 @@ function initPWAInstallLogic() {
         e.preventDefault();
         window.deferredInstallPrompt = e;
         console.log("✅ App is ready to be installed.");
+        
+        // Optional: If you want to show a custom install button elsewhere when ready
+        // const btn = document.getElementById('someInstallBtn');
+        // if(btn) btn.style.display = 'block';
     });
 
     // 2. Make the Profile Button work
@@ -123,19 +145,11 @@ function initPWAInstallLogic() {
 
     if (btnProfileInstall) {
         btnProfileInstall.addEventListener('click', async () => {
+            const handled = await window.triggerAppInstall();
+            if (handled) return;
 
-            // CASE A: Android/Desktop is ready to install
-            if (window.deferredInstallPrompt) {
-                window.deferredInstallPrompt.prompt();
-                const { outcome } = await window.deferredInstallPrompt.userChoice;
-                console.log(`User response: ${outcome}`);
-                window.deferredInstallPrompt = null;
-                return;
-            }
-
-            // CASE B: Already Installed or iPhone
+            // Manual Fallback logic for Profile Button
             const isIOS = /iPhone|iPad|iPod/.test(navigator.userAgent);
-
             if (isIOS) {
                 alert("📲 To install on iPhone:\n\n1. Tap the Share button (square with arrow)\n2. Scroll down and tap 'Add to Home Screen'");
             } else {
@@ -152,32 +166,4 @@ function initPWAInstallLogic() {
             document.getElementById('installBanner').style.display = 'none';
         }
     });
-}
-
-// Helper function to trigger the native prompt
-async function triggerInstall() {
-    if (!window.deferredInstallPrompt) return;
-
-    // Show the native browser prompt
-    window.deferredInstallPrompt.prompt();
-
-    // Wait for the user to respond
-    const { outcome } = await window.deferredInstallPrompt.userChoice;
-    console.log(`User response: ${outcome}`);
-
-    // Reset variable (can't use it twice)
-    window.deferredInstallPrompt = null;
-    document.getElementById('installBanner').style.display = 'none';
-}
-
-// Helper to explain iOS installation
-function checkIOSandHelp() {
-    // Detect if user is on iPhone/iPad using classic regex
-    const isIOS = /iPhone|iPad|iPod/.test(navigator.userAgent);
-
-    if (isIOS) {
-        alert("📲 To install on iPhone:\n\n1. Tap the 'Share' icon (square with arrow) at the bottom.\n2. Scroll down and tap 'Add to Home Screen'.");
-    } else {
-        alert("It looks like the app is already installed, or your browser doesn't support automatic installation.");
-    }
 }

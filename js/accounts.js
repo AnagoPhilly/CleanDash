@@ -35,6 +35,14 @@ function handleGeofenceInputChange() {
 window.loadAccountsList = function() {
   if (!window.currentUser) return;
 
+  // Admin-only buttons logic
+  const btnImport = document.getElementById('btnImportAccounts');
+  const btnAdd = document.getElementById('btnAddAccount');
+  const isRealAdmin = window.currentUser.isRealAdmin === true;
+
+  if (btnImport) btnImport.style.display = isRealAdmin ? 'block' : 'none';
+  if (btnAdd) btnAdd.style.display = isRealAdmin ? 'block' : 'none';
+
   const activeDiv = document.getElementById('accountsList');
   const inactiveDiv = document.getElementById('inactiveAccountsList');
 
@@ -45,7 +53,7 @@ window.loadAccountsList = function() {
   q.orderBy('createdAt', 'desc').get()
   .then(snap => {
     if (snap.empty) {
-      if(activeDiv) activeDiv.innerHTML = '<div style="text-align:center; padding:3rem; color:#6b7280;">No accounts yet — click "+ Add Account"</div>';
+      if(activeDiv) activeDiv.innerHTML = '<div style="text-align:center; padding:3rem; color:#6b7280;">No accounts yet.</div>';
       if(inactiveDiv) inactiveDiv.innerHTML = '';
       return;
     }

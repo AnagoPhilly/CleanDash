@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -107,6 +108,7 @@
             <div class="nav-item" data-page="cfee_calc">C-Fee Calculator</div>
             <div class="nav-item active" data-page="dashboard">Dashboard</div>
             <div class="nav-item" data-page="ad_generator">Ad Generator</div>
+            <div class="nav-item" data-page="faq">FAQ / Help</div>
             <div class="nav-item" data-page="profile">Profile</div>
 
             <div id="navGodMode" class="nav-item" onclick="window.location.href='admin.html'" style="display:none; margin-top:10px; cursor:pointer;">
@@ -151,8 +153,8 @@
                         </div>
                         <div style="display:flex; gap:10px;">
                             <button id="btnDeleteAllAccounts" onclick="deleteAllAccountsForDev()" class="btn btn-danger" style="display:none; background:#b91c1c;">⚠️ Delete All</button>
-                            <button onclick="window.open('import.html', '_blank')" class="btn btn-secondary" style="border:1px solid #d1d5db;">📂 Import List</button>
-                            <button onclick="showAddAccount()" class="btn btn-primary">+ Add Account</button>
+                            <button id="btnImportAccounts" onclick="window.open('import.html', '_blank')" class="btn btn-secondary" style="border:1px solid #d1d5db; display:none;">📂 Import List</button>
+                            <button id="btnAddAccount" onclick="showAddAccount()" class="btn btn-primary" style="display:none;">+ Add Account</button>
                         </div>
                     </div>
                     <h3 style="color:#0d9488; border-bottom:2px solid #f0fdfa; padding-bottom:10px; margin-bottom:15px;">Active Accounts</h3>
@@ -558,6 +560,14 @@
                         <textarea id="adOutput" class="ad-output-area" placeholder="Click 'Generate Ad' to build your job post..."></textarea>
                         <div id="hidden-flyer"></div>
                     </div>
+                </div>
+            </div>
+        </div>
+
+        <div id="faq" class="page">
+            <div class="page-container">
+                <div class="content-card">
+                    <div id="faqGrid"></div>
                 </div>
             </div>
         </div>
@@ -1167,6 +1177,7 @@
 <script src="js/employees.js"></script>
 <script src="js/scheduler.js"></script>
 <script src="js/payroll.js"></script>
+<script src="js/faq.js"></script>
 
 <script src="js/main.js"></script>
 </body>
