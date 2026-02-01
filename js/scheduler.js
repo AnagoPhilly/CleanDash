@@ -193,6 +193,8 @@ function ensureViewToggleButtons() {
 
 
 
+
+
 // --- NEW: RENDER LIST VIEW (BY JOB) ---
 function renderListView(jobs, alertThreshold, accountAlarms) {
     const grid = document.getElementById('schedulerGrid');
@@ -324,6 +326,116 @@ function renderListView(jobs, alertThreshold, accountAlarms) {
     // Force scroll to top
     grid.scrollTop = 0;
 }
+
+// --- NEW: AUTO-SHORTEN DROPDOWNS ON MOBILE ---
+window.optimizeMobileHeader = function() {
+    const selects = document.querySelectorAll('#scheduler select');
+    selects.forEach(s => {
+        Array.from(s.options).forEach(o => {
+            // Remove 'All ' from the beginning of text to save space
+            o.text = o.text.replace(/^All\s+/, '');
+        });
+    });
+};
+
+// --- NEW: AUTO-SCROLL TO 4 PM (16:00) & CENTER TODAY ---
+window.initSchedulerScroll = function() {
+    const container = document.querySelector('.scheduler-container');
+    const grid = document.getElementById('schedulerGrid');
+
+    if (!container || !grid) return;
+
+    // Detect Time Grid (Week/Day View)
+    const hasTimeSlots = grid.querySelector('.time-slot') || grid.querySelector('.calendar-view');
+
+    if (hasTimeSlots) {
+        // 1. Vertical Scroll
+        // The scheduler starts at 6 AM. 4 PM is 10 hours later.
+        setTimeout(() => {
+             // Only scroll if scrollTop is near 0 (initial state)
+             if (container.scrollTop < 20) {
+                 container.scrollTop = 600;
+             }
+        }, 100);
+
+        // 2. Horizontal Scroll (Center Today)
+        setTimeout(() => {
+            const todayCol = grid.querySelector('.calendar-day-col.today-active');
+            if (todayCol) {
+                // Determine if we need to scroll (if the container is scrollable)
+                if (container.scrollWidth > container.clientWidth) {
+                     const containerWidth = container.clientWidth;
+                     const colLeft = todayCol.offsetLeft;
+                     const colWidth = todayCol.offsetWidth;
+
+                     // Center the column
+                     const targetScrollLeft = colLeft - (containerWidth / 2) + (colWidth / 2);
+
+                     container.scrollTo({
+                         left: targetScrollLeft,
+                         behavior: 'smooth'
+                     });
+                }
+            }
+        }, 300); // Wait slightly longer for layout
+    }
+};
+
+window.setupSchedulerObserver = function() {
+    const grid = document.getElementById('schedulerGrid');
+    if (!grid) return;
+
+    // Prevent multiple observers (Clean up previous instance)
+    if (window._schedObs) {
+        window._schedObs.disconnect();
+        window._schedObs = null;
+    }
+
+    let debounceTimer;
+
+    window._schedObs = new MutationObserver((mutations) => {
+        // PERFORMANCE FIX: Debounce the scroll check.
+        // This prevents the heavy scroll logic from running hundreds of times
+        // if the DOM is being updated rapidly (e.g. during loading or drag-and-drop).
+        if (debounceTimer) clearTimeout(debounceTimer);
+
+        debounceTimer = setTimeout(() => {
+            window.initSchedulerScroll();
+        }, 300);
+    });
+
+    window._schedObs.observe(grid, { childList: true, subtree: true });
+};
+
+
+// --- INITIALIZATION & CLEANUP ---
+// We use a flag to ensure we do not attach duplicate Event Listeners
+// if this script is re-executed (e.g. by a React component re-mount or God Mode toggle).
+
+if (!window._schedulerEventsAttached) {
+    window.addEventListener('resize', window.optimizeMobileHeader);
+
+    // Only attach 'load' if the document isn't ready yet.
+    // If we are already loaded, we run the functions directly below.
+    if (document.readyState === 'loading') {
+        window.addEventListener('load', () => {
+            window.optimizeMobileHeader();
+            window.setupSchedulerObserver();
+            window.initSchedulerScroll();
+        });
+    }
+
+    window._schedulerEventsAttached = true;
+}
+
+// ALWAYS run these immediately when the script executes,
+// because the DOM might be fresh (re-rendered).
+if (document.readyState === 'complete' || document.readyState === 'interactive') {
+    window.optimizeMobileHeader();
+    window.setupSchedulerObserver();
+    window.initSchedulerScroll();
+}
+
 
 // --- NEW: AUTO-SHORTEN DROPDOWNS ON MOBILE ---
 window.optimizeMobileHeader = function() {
