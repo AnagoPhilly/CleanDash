@@ -635,3 +635,126 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }, 2500);
 });
+
+// --- DROPDOWN NAV ---
+window.toggleEmpMenu = function() {
+    const menu = document.getElementById('empNavDropdown');
+    if (menu) menu.classList.toggle('show');
+};
+
+// --- FAQ MODAL ---
+window.openFAQ = function() {
+    const modal = document.getElementById('faqModal');
+    if (modal) {
+        modal.style.display = 'flex';
+        // Close menu if open
+        const menu = document.getElementById('empNavDropdown');
+        if (menu) menu.classList.remove('show');
+    }
+};
+
+window.closeFAQ = function() {
+    const modal = document.getElementById('faqModal');
+    if (modal) modal.style.display = 'none';
+};
+
+// Close dropdown if clicked outside
+document.addEventListener('click', function(event) {
+    const container = document.querySelector('.emp-dropdown-container');
+    const menu = document.getElementById('empNavDropdown');
+    if (container && menu && menu.classList.contains('show')) {
+        if (!container.contains(event.target)) {
+            menu.classList.remove('show');
+        }
+    }
+});
+
+// --- FAQ TABS & ACCORDION ---
+window.switchFaqTab = function(tabName) {
+    const faqSection = document.getElementById('faqSectionContent');
+    const installSection = document.getElementById('installSectionContent');
+    const tabFaq = document.getElementById('tabFaq');
+    const tabInstall = document.getElementById('tabInstall');
+
+    if (tabName === 'faq') {
+        faqSection.style.display = 'block';
+        installSection.style.display = 'none';
+        tabFaq.classList.add('active');
+        tabInstall.classList.remove('active');
+    } else {
+        faqSection.style.display = 'none';
+        installSection.style.display = 'block';
+        tabFaq.classList.remove('active');
+        tabInstall.classList.add('active');
+        if (window.resetInstallView) window.resetInstallView();
+    }
+};
+
+window.toggleFaq = function(button) {
+    const item = button.parentElement;
+    // Optional: Close others
+    // document.querySelectorAll('.faq-item').forEach(i => {
+    //     if(i !== item) i.classList.remove('open');
+    // });
+    item.classList.toggle('open');
+};
+
+// --- INSTALL APP GUIDE LOGIC ---
+window.showInstallGuide = function(os) {
+    document.getElementById('installOsSelect').style.display = 'none';
+    document.getElementById('installGuides').style.display = 'block';
+
+    document.getElementById('guideIphone').style.display = 'none';
+    document.getElementById('guideAndroid').style.display = 'none';
+
+    if (os === 'iphone') {
+        document.getElementById('guideIphone').style.display = 'block';
+        window.switchBrowser('iphone', 'safari'); // Default
+    } else {
+        document.getElementById('guideAndroid').style.display = 'block';
+        window.switchBrowser('android', 'chrome'); // Default
+    }
+}
+
+window.resetInstallView = function() {
+    document.getElementById('installOsSelect').style.display = 'block';
+    document.getElementById('installGuides').style.display = 'none';
+}
+
+window.switchBrowser = function(os, browser) {
+    if (os === 'iphone') {
+        const btnSafari = document.getElementById('tabIphoneSafari');
+        const btnEdge = document.getElementById('tabIphoneEdge');
+        const contentSafari = document.getElementById('contentIphoneSafari');
+        const contentEdge = document.getElementById('contentIphoneEdge');
+
+        if (browser === 'safari') {
+            btnSafari.style.cssText = "background:#333; color:white; border:1px solid #555; padding:5px 15px; border-radius:20px; font-size:0.85rem; cursor:pointer;";
+            btnEdge.style.cssText = "background:transparent; color:#aaa; border:1px solid transparent; padding:5px 15px; border-radius:20px; font-size:0.85rem; cursor:pointer;";
+            contentSafari.style.display = 'block';
+            contentEdge.style.display = 'none';
+        } else {
+            btnSafari.style.cssText = "background:transparent; color:#aaa; border:1px solid transparent; padding:5px 15px; border-radius:20px; font-size:0.85rem; cursor:pointer;";
+            btnEdge.style.cssText = "background:#333; color:white; border:1px solid #555; padding:5px 15px; border-radius:20px; font-size:0.85rem; cursor:pointer;";
+            contentSafari.style.display = 'none';
+            contentEdge.style.display = 'block';
+        }
+    } else {
+        const btnChrome = document.getElementById('tabAndroidChrome');
+        const btnEdge = document.getElementById('tabAndroidEdge');
+        const contentChrome = document.getElementById('contentAndroidChrome');
+        const contentEdge = document.getElementById('contentAndroidEdge');
+
+         if (browser === 'chrome') {
+            btnChrome.style.cssText = "background:#047857; color:white; border:1px solid #065f46; padding:5px 15px; border-radius:20px; font-size:0.85rem; cursor:pointer;";
+            btnEdge.style.cssText = "background:transparent; color:#d1fae5; border:1px solid transparent; padding:5px 15px; border-radius:20px; font-size:0.85rem; cursor:pointer;";
+            contentChrome.style.display = 'block';
+            contentEdge.style.display = 'none';
+        } else {
+            btnChrome.style.cssText = "background:transparent; color:#d1fae5; border:1px solid transparent; padding:5px 15px; border-radius:20px; font-size:0.85rem; cursor:pointer;";
+            btnEdge.style.cssText = "background:#047857; color:white; border:1px solid #065f46; padding:5px 15px; border-radius:20px; font-size:0.85rem; cursor:pointer;";
+            contentChrome.style.display = 'none';
+            contentEdge.style.display = 'block';
+        }
+    }
+}

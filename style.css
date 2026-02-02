@@ -841,44 +841,50 @@ input:checked + .slider:before { transform: translateX(22px); }
 @media (max-width: 768px) {
 
     /* 1. Force the Card Header to Stack Vertically */
-    /* This ensures the Title and Buttons are on separate lines */
-    #schedule .card-header {
+    #schedule .card-header,
+    .portal-container .content-card .card-header {
         display: flex !important;
         flex-direction: column !important;
         align-items: stretch !important;
         height: auto !important;
-        padding-bottom: 15px;
+        padding-bottom: 10px;
         gap: 15px;
     }
 
     /* 2. Reset the Title Margins */
-    #schedule .card-header h2 {
+    #schedule .card-header h2,
+    .portal-container .content-card .card-header h2 {
         margin: 0 !important;
         text-align: center;
         width: 100%;
     }
 
+    /* 2b. Date Controls (Arrows/Date) - Ensure full width and spacing */
+    .portal-container .content-card .card-header > div:first-child {
+        width: 100% !important;
+        justify-content: space-between !important;
+        display: flex !important;
+    }
+
     /* 3. Fix the View Toggles (Day/Week) Container */
-    /* Remove any fixed widths and force it to fill the available space */
     .view-toggles {
         display: flex !important;
         width: 100% !important;
         max-width: 100% !important;
         background-color: #f3f4f6;
-        padding: 5px;
+        padding: 4px;
         border-radius: 8px;
         box-sizing: border-box; /* Prevents padding from causing overflow */
     }
 
     /* 4. Fix the Individual Buttons */
-    /* Force them to share the space equally (50% each) */
     .btn-view-toggle {
         flex: 1 !important;
-        width: 50% !important;
+        width: auto !important; /* Allow flex to distribute space evenly for 3 buttons */
         text-align: center;
-        padding: 12px 0 !important;
+        padding: 10px 0 !important;
         margin: 0 !important;
-        font-size: 0.95rem !important;
+        font-size: 0.85rem !important;
         white-space: nowrap; /* Prevents text from wrapping weirdly */
     }
 
@@ -966,6 +972,15 @@ input:checked + .slider:before { transform: translateX(22px); }
     max-width: 600px;
     margin: 0 auto;
     padding: 15px;
+}
+
+.portal-header-row {
+    display: flex; justify-content: space-between; align-items: center;
+    background: white; padding: 15px; border-radius: 12px;
+    box-shadow: 0 2px 5px rgba(0,0,0,0.05); margin-bottom: 20px;
+    /* [FIX] Add relative positioning and z-index to ensure menu floats above scheduler */
+    position: relative;
+    z-index: 100;
 }
 
 .portal-header {
@@ -1231,4 +1246,165 @@ input:checked + .slider:before { transform: translateX(22px); }
     background: #fee2e2;
     padding: 2px 6px;
     border-radius: 4px;
+}
+
+/* --- PORTAL DROPDOWN --- */
+/* CONTAINER FIX: ensure the menu is positioned relative to the button wrapper */
+.emp-dropdown-container {
+    position: relative !important;
+    display: flex;
+    align-items: center;
+}
+
+.emp-dropdown-menu {
+    display: none;
+    position: absolute !important;
+    right: 0 !important;
+    top: calc(100% + 8px) !important; /* Drops BELOW the button with a gap */
+    bottom: auto !important; /* PREVENTS it from sticking to the bottom */
+    margin-top: 0;
+    background-color: white;
+    min-width: 180px;
+    box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+    border-radius: 8px;
+    border: 1px solid #e5e7eb;
+    z-index: 1000 !important; /* Highest z-index */
+    overflow: hidden;
+    animation: fadeIn 0.1s ease-out;
+}
+
+/* Optional Arrow */
+.emp-dropdown-menu::before {
+    content: '';
+    position: absolute;
+    top: -6px;
+    right: 14px;
+    width: 12px;
+    height: 12px;
+    background: white;
+    border-left: 1px solid #e5e7eb;
+    border-top: 1px solid #e5e7eb;
+    transform: rotate(45deg);
+}
+
+.emp-dropdown-menu.show {
+    display: block;
+}
+
+.emp-menu-item {
+    padding: 12px 16px;
+    cursor: pointer;
+    font-size: 0.9rem;
+    color: #374151;
+    border-bottom: 1px solid #f3f4f6;
+    transition: background 0.1s;
+    position: relative;
+    z-index: 2; /* Sit above the arrow */
+    background: white;
+}
+
+.emp-menu-item:hover {
+    background-color: #f9fafb;
+}
+
+.emp-menu-item:last-child {
+    border-bottom: none;
+}
+
+.emp-menu-item.logout-item {
+    color: #ef4444;
+    font-weight: 600;
+}
+
+/* Clean transparent hamburger button */
+.btn-hamburger {
+    background: transparent;
+    border: none;
+    border-radius: 4px;
+    padding: 8px;
+    cursor: pointer;
+    color: #374151;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s;
+}
+
+.btn-hamburger:hover {
+    background: #f3f4f6;
+}
+
+.btn-hamburger svg {
+    display: block;
+    width: 24px;
+    height: 24px;
+}
+
+/* --- FAQ / HELP CENTER STYLES --- */
+.btn-tab {
+    padding: 8px 24px;
+    border-radius: 6px;
+    font-weight: 600;
+    font-size: 0.9rem;
+    border: none;
+    cursor: pointer;
+    background: #e5e7eb;
+    color: #4b5563;
+    transition: all 0.2s;
+}
+.btn-tab.active {
+    background: #0d9488;
+    color: white;
+}
+
+.faq-item {
+    margin-bottom: 10px;
+    border: 1px solid #e5e7eb;
+    border-radius: 8px;
+    overflow: hidden;
+}
+.faq-question {
+    width: 100%;
+    text-align: left;
+    padding: 15px;
+    background: white;
+    border: none;
+    font-weight: 700;
+    color: #374151;
+    font-size: 0.95rem;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    cursor: pointer;
+    transition: background 0.2s;
+}
+.faq-question:hover {
+    background: #f9fafb;
+}
+.faq-question span {
+    font-weight: 300;
+    font-size: 1.2rem;
+    color: #9ca3af;
+    transition: transform 0.3s;
+}
+.faq-answer {
+    max-height: 0;
+    overflow: hidden;
+    transition: max-height 0.3s ease-out;
+    background: #fcfcfc;
+    border-top: 1px solid #f3f4f6;
+}
+.faq-answer p {
+    padding: 15px;
+    margin: 0;
+    font-size: 0.9rem;
+    color: #4b5563;
+    line-height: 1.5;
+}
+.faq-item.open .faq-answer {
+    max-height: 200px; /* arbitrary limit for transition */
+}
+.faq-item.open .faq-question span {
+    transform: rotate(45deg);
+    color: #0d9488;
 }

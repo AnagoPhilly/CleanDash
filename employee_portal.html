@@ -131,12 +131,27 @@
 <div id="empApp" style="display: none;">
     <div class="portal-container">
 
-        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
-            <div>
-                <h2 id="welcomeMsg" style="margin:0; font-size:1.2rem;">My Schedule</h2>
-                <p style="margin:0; font-size:0.8rem; color:#666;">Total Hours: <span id="totalHoursDisplay">0</span></p>
+        <!-- HEADER SECTION -->
+        <div class="portal-header-row">
+            <div class="header-info">
+                <h2 id="welcomeMsg">My Schedule</h2>
+                <p>Total Hours: <span id="totalHoursDisplay">0</span></p>
             </div>
-            <button onclick="logout()" class="btn btn-secondary" style="padding: 5px 10px; font-size:0.8rem;">Log Out</button>
+
+            <div class="emp-dropdown-container">
+                <button onclick="toggleEmpMenu()" class="btn-hamburger" aria-label="Menu">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                        <line x1="3" y1="12" x2="21" y2="12"></line>
+                        <line x1="3" y1="6" x2="21" y2="6"></line>
+                        <line x1="3" y1="18" x2="21" y2="18"></line>
+                    </svg>
+                </button>
+                <div id="empNavDropdown" class="emp-dropdown-menu">
+                    <div class="emp-menu-item" onclick="window.location.reload()">Refresh</div>
+                    <div class="emp-menu-item" onclick="openFAQ()">FAQ</div>
+                    <div class="emp-menu-item logout-item" onclick="logout()">Log Out</div>
+                </div>
+            </div>
         </div>
 
         <div class="content-card" style="padding: 10px; margin-bottom: 10px; flex-shrink: 0;">
@@ -163,6 +178,257 @@
             <div id="schedulerGrid" style="height:100%; overflow:auto;"></div>
         </div>
 
+    </div>
+
+    <!-- FAQ Modal -->
+    <div id="faqModal" class="modal">
+        <div class="modal-content" style="max-width: 500px; padding: 2rem; border-radius: 12px;">
+            <div style="text-align:center; margin-bottom: 1.5rem;">
+                <h2 style="margin:0; font-size:1.5rem; font-weight:800; color:#1f2937;">Help Center</h2>
+                <p style="color:#6b7280; font-size:0.9rem; margin-top:5px;">Guides & App Installation</p>
+            </div>
+
+            <!-- TABS -->
+            <div style="display:flex; justify-content:center; gap:10px; margin-bottom:20px;">
+                <button id="tabFaq" class="btn-tab active" onclick="switchFaqTab('faq')">General FAQ</button>
+                <button id="tabInstall" class="btn-tab" onclick="switchFaqTab('install')">Install App</button>
+            </div>
+
+            <!-- FAQ SECTION -->
+            <div id="faqSectionContent">
+
+                <div class="faq-item">
+                    <button class="faq-question" onclick="toggleFaq(this)">
+                        How do I clock in? <span>+</span>
+                    </button>
+                    <div class="faq-answer">
+                        <p>Go to "My Schedule". When you arrive at the job site, click the green <strong>Clock In</strong> button on your shift card. You must be physically at the location for the button to work.</p>
+                    </div>
+                </div>
+
+                <div class="faq-item">
+                    <button class="faq-question" onclick="toggleFaq(this)">
+                        How do I see my schedule? <span>+</span>
+                    </button>
+                    <div class="faq-answer">
+                        <p>You can toggle between <strong>Day</strong>, <strong>Week</strong>, and <strong>Month</strong> views using the buttons at the top of the schedule page.</p>
+                    </div>
+                </div>
+
+                <div class="faq-item">
+                    <button class="faq-question" onclick="toggleFaq(this)">
+                        My location isn't working? <span>+</span>
+                    </button>
+                    <div class="faq-answer">
+                        <div style="padding:15px;">
+                            <p style="margin:0 0 15px 0; font-weight:600; color:#494949; font-size:0.9rem;">
+                                GPS is required to Clock In.
+                            </p>
+
+                            <div style="margin-bottom:15px; border-bottom:1px solid #e5e7eb; padding-bottom:15px;">
+                                <strong style="display:block; color:#111; font-size:0.95rem; margin-bottom:8px;">iPhone (Safari)</strong>
+                                <ol style="padding-left:20px; margin:0; font-size:0.9rem; color:#4b5563; line-height:1.5;">
+                                    <li>Go to <strong>Settings</strong> > <strong>Privacy & Security</strong>.</li>
+                                    <li>Tap <strong>Location Services</strong> (Ensure it's ON).</li>
+                                    <li>Find <strong>Safari Websites</strong> in the list.</li>
+                                    <li>Select <strong>"While Using the App"</strong>.</li>
+                                    <li><strong>Important:</strong> Turn ON <strong>"Precise Location"</strong>.</li>
+                                </ol>
+                            </div>
+
+                            <div style="padding-top:5px;">
+                                <strong style="display:block; color:#111; font-size:0.95rem; margin-bottom:8px;">Android (Chrome)</strong>
+                                <ol style="padding-left:20px; margin:0; font-size:0.9rem; color:#4b5563; line-height:1.5;">
+                                    <li>Tap the <strong>Lock Icon 🔒</strong> in the address bar.</li>
+                                    <li>Tap <strong>Permissions</strong>.</li>
+                                    <li>Tap <strong>Location</strong> and select <strong>"Allow"</strong>.</li>
+                                    <li>If hidden, check <strong>Settings > Site Settings > Location</strong>.</li>
+                                    <li>Ensure your phone's main <strong>GPS/Location</strong> is ON.</li>
+                                </ol>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="faq-item">
+                    <button class="faq-question" onclick="toggleFaq(this)">
+                        Where is the alarm code? <span>+</span>
+                    </button>
+                    <div class="faq-answer">
+                        <p>If the account requires an alarm code, it will be displayed in <strong>red text</strong> on your shift card next to a lock icon 🔒.</p>
+                    </div>
+                </div>
+
+            </div>
+
+            <!-- INSTALL SECTION (Hidden by default) -->
+            <div id="installSectionContent" style="display:none;">
+
+                <!-- 1. OS SELECTION VIEW -->
+                <div id="installOsSelect">
+                    <div style="background: #f0fdfa; border: 1px dashed #0d9488; padding: 20px; border-radius: 8px; text-align:center; margin-bottom:20px;">
+                        <h3 style="color: #0f766e; margin:0 0 5px 0; font-size: 1.1rem;">Save to Home Screen</h3>
+                        <p style="font-size: 0.9rem; color: #374151; margin:0;">Use this website like a real app.</p>
+                    </div>
+
+                    <div style="display:flex; gap:15px;">
+                        <button onclick="showInstallGuide('iphone')" style="flex:1; padding:20px; background:white; border:1px solid #e5e7eb; border-radius:12px; font-weight:700; color:#1f2937; cursor:pointer; box-shadow:0 2px 5px rgba(0,0,0,0.05); font-size:1rem;">
+                            iPhone
+                        </button>
+                        <button onclick="showInstallGuide('android')" style="flex:1; padding:20px; background:white; border:1px solid #e5e7eb; border-radius:12px; font-weight:700; color:#1f2937; cursor:pointer; box-shadow:0 2px 5px rgba(0,0,0,0.05); font-size:1rem;">
+                            Android
+                        </button>
+                    </div>
+                </div>
+
+                <!-- 2. INSTRUCTIONS VIEW -->
+                <div id="installGuides" style="display:none;">
+                    <div onclick="resetInstallView()" style="color:#6b7280; font-size:0.9rem; cursor:pointer; margin-bottom:10px; display:inline-block;">← Back</div>
+
+                    <!-- IPHONE GUIDE -->
+                    <div id="guideIphone" style="display:none;">
+                        <div style="background:black; color:white; padding:15px; border-radius:12px 12px 0 0; text-align:center;">
+                            <h3 style="margin:0 0 10px 0; font-size:1rem; color:white;">iPhone Instructions</h3>
+                            <div style="display:flex; justify-content:center; gap:10px;">
+                                <button id="tabIphoneSafari" onclick="switchBrowser('iphone', 'safari')" style="background:#333; color:white; border:1px solid #555; padding:5px 15px; border-radius:20px; font-size:0.85rem; cursor:pointer;">Safari</button>
+                                <button id="tabIphoneEdge" onclick="switchBrowser('iphone', 'edge')" style="background:transparent; color:#aaa; border:1px solid transparent; padding:5px 15px; border-radius:20px; font-size:0.85rem; cursor:pointer;">Edge</button>
+                            </div>
+                        </div>
+                        <div style="border:1px solid #e5e7eb; border-top:none; border-radius:0 0 12px 12px; padding:20px; background:white;">
+
+                            <!-- Safari Content -->
+                            <div id="contentIphoneSafari">
+                                <div style="display:flex; gap:15px; margin-bottom:20px;">
+                                    <div style="background:#f3f4f6; width:30px; height:30px; flex-shrink:0; border-radius:50%; display:flex; align-items:center; justify-content:center; font-weight:bold; font-size:0.9rem;">1</div>
+                                    <div>
+                                        <div style="font-weight:700; font-size:0.95rem; margin-bottom:2px;">Tap "Share"</div>
+                                        <div style="color:#6b7280; font-size:0.85rem;">Tap the square icon with an arrow at the bottom of the screen.</div>
+                                        <div style="margin-top:8px;">
+                                            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#374151" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"></path><polyline points="16 6 12 2 8 6"></polyline><line x1="12" y1="2" x2="12" y2="15"></line></svg>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div style="display:flex; gap:15px; margin-bottom:20px;">
+                                    <div style="background:#f3f4f6; width:30px; height:30px; flex-shrink:0; border-radius:50%; display:flex; align-items:center; justify-content:center; font-weight:bold; font-size:0.9rem;">2</div>
+                                    <div>
+                                        <div style="font-weight:700; font-size:0.95rem; margin-bottom:2px;">Select "Add to Home Screen"</div>
+                                        <div style="color:#6b7280; font-size:0.85rem;">Scroll down the list to find it.</div>
+                                        <div style="margin-top:5px; padding:6px 10px; background:#f3f4f6; border-radius:6px; display:inline-block; font-size:0.8rem; font-weight:600; color:#374151;">+ Add to Home Screen</div>
+                                    </div>
+                                </div>
+                                <div style="display:flex; gap:15px;">
+                                    <div style="background:#f3f4f6; width:30px; height:30px; flex-shrink:0; border-radius:50%; display:flex; align-items:center; justify-content:center; font-weight:bold; font-size:0.9rem;">3</div>
+                                    <div>
+                                        <div style="font-weight:700; font-size:0.95rem; margin-bottom:2px;">Tap "Add"</div>
+                                        <div style="color:#6b7280; font-size:0.85rem;">Click 'Add' in the top right corner.</div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Edge Content -->
+                            <div id="contentIphoneEdge" style="display:none;">
+                                <div style="display:flex; gap:15px; margin-bottom:20px;">
+                                    <div style="background:#f3f4f6; width:30px; height:30px; flex-shrink:0; border-radius:50%; display:flex; align-items:center; justify-content:center; font-weight:bold; font-size:0.9rem;">1</div>
+                                    <div>
+                                        <div style="font-weight:700; font-size:0.95rem; margin-bottom:2px;">Tap the Menu</div>
+                                        <div style="color:#6b7280; font-size:0.85rem;">Tap the three dots (•••) at the bottom center.</div>
+                                    </div>
+                                </div>
+                                <div style="display:flex; gap:15px; margin-bottom:20px;">
+                                    <div style="background:#f3f4f6; width:30px; height:30px; flex-shrink:0; border-radius:50%; display:flex; align-items:center; justify-content:center; font-weight:bold; font-size:0.9rem;">2</div>
+                                    <div>
+                                        <div style="font-weight:700; font-size:0.95rem; margin-bottom:2px;">Select "Share"</div>
+                                        <div style="color:#6b7280; font-size:0.85rem;">Tap the Share icon in the menu.</div>
+                                        <div style="margin-top:8px;">
+                                            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#374151" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"></path><polyline points="16 6 12 2 8 6"></polyline><line x1="12" y1="2" x2="12" y2="15"></line></svg>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div style="display:flex; gap:15px;">
+                                    <div style="background:#f3f4f6; width:30px; height:30px; flex-shrink:0; border-radius:50%; display:flex; align-items:center; justify-content:center; font-weight:bold; font-size:0.9rem;">3</div>
+                                    <div>
+                                        <div style="font-weight:700; font-size:0.95rem; margin-bottom:2px;">Add to Home Screen</div>
+                                        <div style="color:#6b7280; font-size:0.85rem;">Scroll down to find "Add to Home Screen" and tap "Add".</div>
+                                    </div>
+                                </div>
+                            </div>
+
+                        </div>
+                    </div>
+
+                    <!-- ANDROID GUIDE -->
+                    <div id="guideAndroid" style="display:none;">
+                        <div style="background:#10b981; color:white; padding:15px; border-radius:12px 12px 0 0; text-align:center;">
+                            <h3 style="margin:0 0 10px 0; font-size:1rem; color:white;">Android Instructions</h3>
+                            <div style="display:flex; justify-content:center; gap:10px;">
+                                <button id="tabAndroidChrome" onclick="switchBrowser('android', 'chrome')" style="background:#047857; color:white; border:1px solid #065f46; padding:5px 15px; border-radius:20px; font-size:0.85rem; cursor:pointer;">Chrome</button>
+                                <button id="tabAndroidEdge" onclick="switchBrowser('android', 'edge')" style="background:transparent; color:#d1fae5; border:1px solid transparent; padding:5px 15px; border-radius:20px; font-size:0.85rem; cursor:pointer;">Edge</button>
+                            </div>
+                        </div>
+                        <div style="border:1px solid #e5e7eb; border-top:none; border-radius:0 0 12px 12px; padding:20px; background:white;">
+
+                            <!-- Chrome Content -->
+                            <div id="contentAndroidChrome">
+                                <div style="display:flex; gap:15px; margin-bottom:20px;">
+                                    <div style="background:#f3f4f6; width:30px; height:30px; flex-shrink:0; border-radius:50%; display:flex; align-items:center; justify-content:center; font-weight:bold; font-size:0.9rem;">1</div>
+                                    <div>
+                                        <div style="font-weight:700; font-size:0.95rem; margin-bottom:2px;">Tap the Menu Icon</div>
+                                        <div style="color:#6b7280; font-size:0.85rem;">Tap the three dots (⋮) in the top right corner.</div>
+                                    </div>
+                                </div>
+                                <div style="display:flex; gap:15px; margin-bottom:20px;">
+                                    <div style="background:#f3f4f6; width:30px; height:30px; flex-shrink:0; border-radius:50%; display:flex; align-items:center; justify-content:center; font-weight:bold; font-size:0.9rem;">2</div>
+                                    <div>
+                                        <div style="font-weight:700; font-size:0.95rem; margin-bottom:2px;">Tap "Install App"</div>
+                                        <div style="color:#6b7280; font-size:0.85rem;">Or "Add to Home Screen".</div>
+                                        <div style="margin-top:5px; padding:6px 10px; background:#f3f4f6; border-radius:6px; display:inline-block; font-size:0.8rem; font-weight:600; color:#374151;">↓ Install App</div>
+                                    </div>
+                                </div>
+                                <div style="display:flex; gap:15px;">
+                                    <div style="background:#f3f4f6; width:30px; height:30px; flex-shrink:0; border-radius:50%; display:flex; align-items:center; justify-content:center; font-weight:bold; font-size:0.9rem;">3</div>
+                                    <div>
+                                        <div style="font-weight:700; font-size:0.95rem; margin-bottom:2px;">Confirm</div>
+                                        <div style="color:#6b7280; font-size:0.85rem;">Tap Add or Install to finish.</div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Edge Content -->
+                            <div id="contentAndroidEdge" style="display:none;">
+                                <div style="display:flex; gap:15px; margin-bottom:20px;">
+                                    <div style="background:#f3f4f6; width:30px; height:30px; flex-shrink:0; border-radius:50%; display:flex; align-items:center; justify-content:center; font-weight:bold; font-size:0.9rem;">1</div>
+                                    <div>
+                                        <div style="font-weight:700; font-size:0.95rem; margin-bottom:2px;">Tap the Menu</div>
+                                        <div style="color:#6b7280; font-size:0.85rem;">Tap the three lines (≡) or dots at the bottom center.</div>
+                                    </div>
+                                </div>
+                                <div style="display:flex; gap:15px; margin-bottom:20px;">
+                                    <div style="background:#f3f4f6; width:30px; height:30px; flex-shrink:0; border-radius:50%; display:flex; align-items:center; justify-content:center; font-weight:bold; font-size:0.9rem;">2</div>
+                                    <div>
+                                        <div style="font-weight:700; font-size:0.95rem; margin-bottom:2px;">Tap "Add to phone"</div>
+                                        <div style="color:#6b7280; font-size:0.85rem;">Look for "Add to phone" or "Add to screen".</div>
+                                        <div style="margin-top:5px; padding:6px 10px; background:#f3f4f6; border-radius:6px; display:inline-block; font-size:0.8rem; font-weight:600; color:#374151;">+ Add to phone</div>
+                                    </div>
+                                </div>
+                                <div style="display:flex; gap:15px;">
+                                    <div style="background:#f3f4f6; width:30px; height:30px; flex-shrink:0; border-radius:50%; display:flex; align-items:center; justify-content:center; font-weight:bold; font-size:0.9rem;">3</div>
+                                    <div>
+                                        <div style="font-weight:700; font-size:0.95rem; margin-bottom:2px;">Confirm</div>
+                                        <div style="color:#6b7280; font-size:0.85rem;">Tap "Add" to finish.</div>
+                                    </div>
+                                </div>
+                            </div>
+
+                        </div>
+                    </div>
+
+                </div>
+            </div>
+
+            <div style="margin-top:20px;">
+                <button onclick="closeFAQ()" style="width:100%; padding:12px; border:none; background:#f3f4f6; color:#4b5563; font-weight:bold; border-radius:8px; cursor:pointer;">Close</button>
+            </div>
+        </div>
     </div>
 </div>
 
