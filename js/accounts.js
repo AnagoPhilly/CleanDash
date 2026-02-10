@@ -76,6 +76,7 @@ window.loadAccountsList = function() {
           const lat = a.lat || 0;
           const lng = a.lng || 0;
           const geofence = a.geofenceRadius || 50;
+          const manHours = a.manHours || 0;
 
           // Scheduler Button Style
           const isScheduled = a.autoSchedule && a.autoSchedule.active;
@@ -83,13 +84,19 @@ window.loadAccountsList = function() {
           const schedIcon = isScheduled ? "" : "";
 
           activeRows += `<tr>
-            <td><div style="font-weight:600; color:#111827;">${a.name}</div><div style="font-size:0.8rem; color:#6b7280;">${a.contactName || ''}</div></td>
+            <td>
+                <div style="font-weight:600; color:#111827;">${a.name}</div>
+                <div style="font-size:0.8rem; color:#6b7280;">
+                    ${a.contactName || ''}
+                    ${a.contactPhone ? `<span style="margin-left:5px; color:#4b5563;">- ${a.contactPhone}</span>` : ''}
+                </div>
+            </td>
             <td><div style="color:#4b5563; font-size:0.9rem;">${a.address}</div>${a.alarmCode ? `<div style="font-size:0.75rem; color:#ef4444; font-weight:bold; margin-top:2px;">🚨 ${a.alarmCode}</div>` : ''}</td>
             <td class="col-revenue">$${(a.revenue || 0).toLocaleString()}</td>
             <td style="text-align:center;">
                 <div class="action-buttons" style="display:flex; justify-content:center; gap:5px;">
                     <button onclick="openScheduleSettings('${doc.id}', '${safeName}', '${serviceDays}')" class="btn-xs" style="${schedBtnStyle} display:flex; align-items:center; gap:3px;">${schedIcon} Scheduler</button>
-                    <button onclick="showEditAccount('${doc.id}', '${safeName}', '${safeAlarm}', ${geofence}, ${lat}, ${lng})" class="btn-xs btn-edit">Edit</button>
+                    <button onclick="showEditAccount('${doc.id}', '${safeName}', '${safeAlarm}', ${geofence}, ${lat}, ${lng}, ${manHours})" class="btn-xs btn-edit">Edit</button>
                     <button onclick="openSpecsModal('${doc.id}', '${safeName}', 'view')" class="btn-xs btn-specs-view">Specs</button>
                 </div>
             </td>
@@ -120,16 +127,18 @@ window.loadAccountsList = function() {
 };
 
 // --- 4A. SHOW PHYSICAL EDIT MODAL ---
-window.showEditAccount = function(id, name, alarm, geofence, lat, lng) {
+window.showEditAccount = function(id, name, alarm, geofence, lat, lng, manHours) {
     document.getElementById('editAccountId').value = id;
     const titleEl = document.getElementById('editAccountModalTitle');
     if(titleEl) titleEl.textContent = `Edit: ${name}`;
 
     const alarmEl = document.getElementById('editAccountAlarm');
     const geoEl = document.getElementById('editAccountGeofence');
+    const manHoursEl = document.getElementById('editAccountManHours');
 
     if(alarmEl) alarmEl.value = alarm || '';
     if(geoEl) geoEl.value = geofence || 200;
+    if(manHoursEl) manHoursEl.value = manHours || '';
 
     document.getElementById('editAccountModal').style.display = 'flex';
 
@@ -180,12 +189,14 @@ window.saveEditedAccount = async (event) => {
         const finalLatLng = editMarker ? editMarker.getLatLng() : { lat: 0, lng: 0 };
         const newGeofence = parseInt(document.getElementById('editAccountGeofence').value) || 200;
         const newAlarm = document.getElementById('editAccountAlarm').value.trim();
+        const newManHours = parseFloat(document.getElementById('editAccountManHours').value) || 0;
 
         await db.collection('accounts').doc(id).set({
             alarmCode: newAlarm,
             geofenceRadius: newGeofence,
             lat: finalLatLng.lat,
-            lng: finalLatLng.lng
+            lng: finalLatLng.lng,
+            manHours: newManHours
         }, { merge: true });
 
         window.showToast('Location Details Saved!');

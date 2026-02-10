@@ -94,13 +94,24 @@ window.switchAdminTab = function(tab) {
 
 // --- VIEW 1: FRANCHISE OWNERS & DATA LOADER ---
 
-async function loadGodModeData() {
+// 1. GLOBAL FLAG (Put this outside the function)
+let godModeDataLoaded = false;
+
+async function loadGodModeData(forceRefresh = false) {
     const ownerListEl = document.getElementById('userList');
+
+    // 2. CACHE CHECK: If data exists & we aren't forcing refresh, STOP here.
+    if (godModeDataLoaded && !forceRefresh && allOwners.length > 0) {
+        console.log("⚡ CleanDash: Using cached data (Saved you money!)");
+        return;
+    }
 
     // Set loading state
     ownerListEl.innerHTML = '<div style="padding:20px;">Scanning...</div>';
 
     try {
+        console.log("🔥 CleanDash: Downloading Database..."); // Log so we know when it happens
+
         // Fetch all necessary collections in parallel
         const [usersSnap, accountsSnap, empSnap] = await Promise.all([
             db.collection('users').get(),
@@ -124,7 +135,6 @@ async function loadGodModeData() {
                 allOwners.push({ id: uid, ...data, accountCount: 0, revenue: 0 });
                 ownerCount++;
             }
-
             // 2. Identify Admins (Role check OR legacy isAdmin flag)
             else if (data.role === 'admin' || data.isAdmin === true) {
                 allAdmins.push({ id: uid, ...data });
@@ -161,6 +171,9 @@ async function loadGodModeData() {
                 empCounts[e.owner] = (empCounts[e.owner] || 0) + 1;
             }
         });
+
+        // --- 3. IMPORTANT: MARK DATA AS LOADED ---
+        godModeDataLoaded = true;
 
         // --- D. UPDATE KPI CARDS ---
         if(document.getElementById('statOwners')) document.getElementById('statOwners').textContent = ownerCount;
